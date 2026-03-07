@@ -1,0 +1,131 @@
+/* Minimal reset — SpendWise uses inline styles */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+input,
+select,
+button,
+textarea {
+  font-family: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ── Responsive Breakpoints ────────────────────────────────────── */
+
+/* Tablet and below: stack the main dashboard layout */
+@media (max-width: 900px) {
+  .dashboard-main-layout {
+    flex-direction: column !important;
+  }
+
+  .notes-sidebar {
+    width: 100% !important;
+    min-width: 0 !important;
+    position: relative !important;
+    top: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
+
+  .dashboard-content {
+    width: 100% !important;
+  }
+
+  .dashboard-header {
+    padding: 12px 16px !important;
+    gap: 10px !important;
+  }
+
+  .header-actions {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+}
+
+/* Mobile: more aggressive stacking, smaller text/padding */
+@media (max-width: 600px) {
+  .dashboard-main-layout {
+    flex-direction: column !important;
+    padding: 16px 12px 100px !important;
+    gap: 16px !important;
+  }
+
+  .notes-sidebar {
+    width: 100% !important;
+    min-width: 0 !important;
+    position: relative !important;
+    top: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
+
+  .dashboard-content {
+    width: 100% !important;
+  }
+
+  .dashboard-header {
+    padding: 10px 12px !important;
+    gap: 8px !important;
+  }
+
+  .header-brand {
+    gap: 6px !important;
+  }
+
+  .header-actions {
+    flex-wrap: wrap !important;
+    gap: 4px !important;
+    width: 100% !important;
+    justify-content: flex-start !important;
+  }
+
+  .hero-cards-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+
+  .category-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .charts-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .stats-row {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+
+  .tabs-bar {
+    font-size: 12px !important;
+  }
+}
