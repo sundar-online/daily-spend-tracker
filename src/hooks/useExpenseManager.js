@@ -1,119 +1,147 @@
-import { useState, useEffect } from "react";
-import { CURRENT_MONTH, CURRENT_YEAR, DEFAULT_CATS, SESSION_KEY } from "../utils/constants";
-import { monthKey, load, persist } from "../utils/storage";
+import { useState, useEffect, useCallback } from "react";
+import { CURRENT_MONTH, CURRENT_YEAR, DEFAULT_CATS } from "../utils/constants";
+import { monthKey } from "../utils/storage";
+import { supabase } from "../utils/supabaseClient";
+import {
+    fetchUserData,
+    upsertBudget,
+    insertExpense,
+    deleteExpenseById,
+    upsertCategories,
+    saveAllNotes,
+} from "../utils/supabaseStorage";
 
 /**
  * Custom hook that encapsulates all the app-level state management:
  * user auth, budget operations, expense CRUD, categories, and notes.
+ * Now powered by Supabase instead of localStorage.
  */
 export function useExpenseManager() {
-    const [user, setUser] = useState(null);
+    const [user, setUser] = useState(null);        // { id, email }
     const [screen, setScreen] = useState("auth");
     const [allUserData, setAllUserData] = useState(null);
+    const [loading, setLoading] = useState(true);   // initial session check
 
-    // Restore session on mount
-    useEffect(() => {
-        const session = sessionStorage.getItem(SESSION_KEY);
-        if (session) {
-            setUser(session);
-            const stored = load();
-            const ud = stored[session] || { months: {} };
-            setAllUserData(ud);
+    // Load user data from Supabase
+    const loadData = useCallback(async (userId) => {
+        try {
+            const data = await fetchUserData(userId);
+            setAllUserData(data);
             const curKey = monthKey(CURRENT_MONTH, CURRENT_YEAR);
-            setScreen(ud.months?.[curKey]?.budget ? "dashboard" : "setup");
+            setScreen(data.months?.[curKey]?.budget ? "dashboard" : "setup");
+        } catch (err) {
+            console.error("Failed to load data:", err);
+            setScreen("setup");
         }
     }, []);
 
-    const login = (username) => {
-        setUser(username);
-        sessionStorage.setItem(SESSION_KEY, username);
-        const stored = load();
-        const ud = stored[username] || { months: {} };
-        setAllUserData(ud);
-        const curKey = monthKey(CURRENT_MONTH, CURRENT_YEAR);
-        setScreen(ud.months?.[curKey]?.budget ? "dashboard" : "setup");
+    // Restore session on mount
+    useEffect(() => {
+        const initSession = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                const u = { id: session.user.id, email: session.user.email };
+                setUser(u);
+                await loadData(u.id);
+            }
+            setLoading(false);
+        };
+        initSession();
+
+        // Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+            async (event, session) => {
+                if (event === 'SIGNED_OUT') {
+                    setUser(null);
+                    setScreen("auth");
+                    setAllUserData(null);
+                }
+            }
+        );
+
+        return () => subscription.unsubscribe();
+    }, [loadData]);
+
+    const login = async (authUser) => {
+        setUser(authUser);
+        setLoading(true);
+        await loadData(authUser.id);
+        setLoading(false);
     };
 
-    const logout = () => {
-        sessionStorage.removeItem(SESSION_KEY);
+    const logout = async () => {
+        await supabase.auth.signOut();
         setUser(null);
         setScreen("auth");
         setAllUserData(null);
     };
 
-    const saveBudget = (budget) => {
-        const stored = load();
-        const key = monthKey(budget.month, budget.year);
-        const ud = stored[user] || { months: {} };
-        if (!ud.months) ud.months = {};
-        if (!ud.months[key]) ud.months[key] = { expenses: [] };
-        ud.months[key].budget = budget;
-        stored[user] = ud;
-        persist(stored);
-        setAllUserData({ ...ud });
-        setScreen("dashboard");
-    };
-
-    const addExpense = (expense) => {
-        const stored = load();
-        const key = monthKey(CURRENT_MONTH, CURRENT_YEAR);
-        const ud = stored[user] || { months: {} };
-        if (!ud.months) ud.months = {};
-        if (!ud.months[key]) ud.months[key] = { expenses: [] };
-
-        if (expense.isNewSub) {
-            if (!ud.customCategories) ud.customCategories = {};
-            const base = DEFAULT_CATS[expense.category]
-                ? { ...DEFAULT_CATS[expense.category] }
-                : { icon: "💳", color: "#f97316", subs: [] };
-            const existing = ud.customCategories[expense.category] || { ...base };
-            if (!existing.subs.includes(expense.subCategory))
-                existing.subs = [...existing.subs, expense.subCategory];
-            ud.customCategories[expense.category] = existing;
-            if (ud.months[key].budget) {
-                if (!ud.months[key].budget.customCategories)
-                    ud.months[key].budget.customCategories = {};
-                ud.months[key].budget.customCategories[expense.category] = existing;
-            }
+    const saveBudget = async (budget) => {
+        try {
+            await upsertBudget(user.id, budget);
+            // Reload data to stay in sync
+            await loadData(user.id);
+            setScreen("dashboard");
+        } catch (err) {
+            console.error("Failed to save budget:", err);
+            alert("Failed to save budget: " + (err.message || JSON.stringify(err)));
         }
-
-        ud.months[key].expenses = [...(ud.months[key].expenses || []), expense];
-        stored[user] = ud;
-        persist(stored);
-        setAllUserData({ ...ud });
     };
 
-    const deleteExpense = (expenseId) => {
-        const stored = load();
-        const ud = stored[user] || { months: {} };
-        Object.keys(ud.months || {}).forEach((key) => {
-            if (ud.months[key]?.expenses) {
-                ud.months[key].expenses = ud.months[key].expenses.filter(
-                    (e) => e.id !== expenseId
-                );
+    const addExpense = async (expense) => {
+        try {
+            const key = monthKey(CURRENT_MONTH, CURRENT_YEAR);
+
+            // If adding a new subcategory, update custom categories
+            if (expense.isNewSub) {
+                const currentCats = allUserData?.customCategories || {};
+                const base = DEFAULT_CATS[expense.category]
+                    ? { ...DEFAULT_CATS[expense.category] }
+                    : { icon: "💳", color: "#f97316", subs: [] };
+                const existing = currentCats[expense.category] || { ...base };
+                if (!existing.subs.includes(expense.subCategory)) {
+                    existing.subs = [...existing.subs, expense.subCategory];
+                }
+                const updatedCats = { ...currentCats, [expense.category]: existing };
+                await upsertCategories(user.id, updatedCats);
             }
-        });
-        stored[user] = ud;
-        persist(stored);
-        setAllUserData({ ...ud });
+
+            await insertExpense(user.id, expense, key);
+            await loadData(user.id);
+        } catch (err) {
+            console.error("Failed to add expense:", err);
+            alert("Failed to add expense. Please try again.");
+        }
     };
 
-    const saveCategories = (customCats) => {
-        const stored = load();
-        const ud = stored[user] || { months: {} };
-        ud.customCategories = customCats;
-        stored[user] = ud;
-        persist(stored);
-        setAllUserData({ ...ud });
+    const deleteExpense = async (expenseId) => {
+        try {
+            await deleteExpenseById(expenseId);
+            await loadData(user.id);
+        } catch (err) {
+            console.error("Failed to delete expense:", err);
+            alert("Failed to delete expense. Please try again.");
+        }
     };
 
-    const saveNotes = (notes) => {
-        const stored = load();
-        const ud = stored[user] || { months: {} };
-        ud.notes = notes;
-        stored[user] = ud;
-        persist(stored);
-        setAllUserData({ ...ud });
+    const saveCategories = async (customCats) => {
+        try {
+            await upsertCategories(user.id, customCats);
+            await loadData(user.id);
+        } catch (err) {
+            console.error("Failed to save categories:", err);
+            alert("Failed to save categories. Please try again.");
+        }
+    };
+
+    const saveNotes = async (notes) => {
+        try {
+            await saveAllNotes(user.id, notes);
+            await loadData(user.id);
+        } catch (err) {
+            console.error("Failed to save notes:", err);
+            alert("Failed to save notes. Please try again.");
+        }
     };
 
     const currentKey = monthKey(CURRENT_MONTH, CURRENT_YEAR);
@@ -125,6 +153,7 @@ export function useExpenseManager() {
         setScreen,
         allUserData,
         currentBudget,
+        loading,
         login,
         logout,
         saveBudget,

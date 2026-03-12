@@ -1,26 +1,45 @@
 import { useState } from "react";
 import { S, FontLink } from "../styles/shared.jsx";
+import { supabase } from "../utils/supabaseClient";
 
 export default function AuthScreen({ onLogin }) {
     const [mode, setMode] = useState("login");
-    const [f, setF] = useState({ username: "", password: "", confirm: "" });
+    const [f, setF] = useState({ email: "", password: "", confirm: "" });
     const [err, setErr] = useState("");
+    const [loading, setLoading] = useState(false);
 
-    const submit = (e) => {
+    const submit = async (e) => {
         e.preventDefault();
         setErr("");
-        const users = JSON.parse(localStorage.getItem("setUsers") || "{}");
-        if (!f.username.trim() || !f.password) return setErr("All fields required.");
-        if (mode === "signup") {
-            if (f.password !== f.confirm) return setErr("Passwords don't match.");
-            if (users[f.username]) return setErr("Username taken.");
-            users[f.username] = f.password;
-            localStorage.setItem("setUsers", JSON.stringify(users));
-            return onLogin(f.username);
+        if (!f.email.trim() || !f.password) return setErr("All fields required.");
+
+        setLoading(true);
+        try {
+            if (mode === "signup") {
+                if (f.password !== f.confirm) { setLoading(false); return setErr("Passwords don't match."); }
+                if (f.password.length < 6) { setLoading(false); return setErr("Password must be at least 6 characters."); }
+                const { data, error } = await supabase.auth.signUp({
+                    email: f.email.trim(),
+                    password: f.password,
+                });
+                if (error) { setLoading(false); return setErr(error.message); }
+                if (data.user) {
+                    onLogin({ id: data.user.id, email: data.user.email });
+                }
+            } else {
+                const { data, error } = await supabase.auth.signInWithPassword({
+                    email: f.email.trim(),
+                    password: f.password,
+                });
+                if (error) { setLoading(false); return setErr(error.message); }
+                if (data.user) {
+                    onLogin({ id: data.user.id, email: data.user.email });
+                }
+            }
+        } catch (ex) {
+            setErr(ex.message || "Something went wrong.");
         }
-        if (!users[f.username] || users[f.username] !== f.password)
-            return setErr("Invalid credentials.");
-        onLogin(f.username);
+        setLoading(false);
     };
 
     return (
@@ -42,18 +61,26 @@ export default function AuthScreen({ onLogin }) {
                         ))}
                     </div>
                     <form onSubmit={submit}>
-                        {["username", "password", ...(mode === "signup" ? ["confirm"] : [])].map(k => (
-                            <div key={k} style={{ marginBottom: 16 }}>
-                                <label style={S.label}>{k === "confirm" ? "Confirm Password" : k}</label>
-                                <input type={k === "username" ? "text" : "password"} value={f[k]} onChange={e => setF(p => ({ ...p, [k]: e.target.value }))} placeholder={k === "confirm" ? "Re-enter password" : k === "username" ? "your username" : "••••••••"} style={S.input} />
+                        <div style={{ marginBottom: 16 }}>
+                            <label style={S.label}>Email</label>
+                            <input type="email" value={f.email} onChange={e => setF(p => ({ ...p, email: e.target.value }))} placeholder="your@email.com" style={S.input} />
+                        </div>
+                        <div style={{ marginBottom: 16 }}>
+                            <label style={S.label}>Password</label>
+                            <input type="password" value={f.password} onChange={e => setF(p => ({ ...p, password: e.target.value }))} placeholder="••••••••" style={S.input} />
+                        </div>
+                        {mode === "signup" && (
+                            <div style={{ marginBottom: 16 }}>
+                                <label style={S.label}>Confirm Password</label>
+                                <input type="password" value={f.confirm} onChange={e => setF(p => ({ ...p, confirm: e.target.value }))} placeholder="Re-enter password" style={S.input} />
                             </div>
-                        ))}
+                        )}
                         {err && <p style={{ color: "#f87171", fontSize: 12, textAlign: "center", margin: "0 0 12px" }}>{err}</p>}
-                        <button type="submit" style={{ ...S.btn, width: "100%", background: "linear-gradient(135deg,#f97316,#fbbf24)", color: "#0d0d0f", fontSize: 15, padding: "14px" }}>
-                            {mode === "login" ? "Log In →" : "Create Account →"}
+                        <button type="submit" disabled={loading} style={{ ...S.btn, width: "100%", background: loading ? "rgba(249,115,22,0.5)" : "linear-gradient(135deg,#f97316,#fbbf24)", color: "#0d0d0f", fontSize: 15, padding: "14px", opacity: loading ? 0.7 : 1 }}>
+                            {loading ? "Please wait…" : mode === "login" ? "Log In →" : "Create Account →"}
                         </button>
                     </form>
-                    <p style={{ textAlign: "center", color: "rgba(240,236,228,0.2)", fontSize: 11, marginTop: 20, marginBottom: 0 }}>Demo: sign up with any credentials</p>
+                    <p style={{ textAlign: "center", color: "rgba(240,236,228,0.2)", fontSize: 11, marginTop: 20, marginBottom: 0 }}>Sign up with your email & password (min 6 chars)</p>
                 </div>
             </div>
         </div>
