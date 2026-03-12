@@ -20,6 +20,7 @@ export default function Dashboard({
     const [showCatManager, setShowCatManager] = useState(false);
     const [tab, setTab] = useState("overview");
     const [filterCat, setFilterCat] = useState("All");
+    const [filterDate, setFilterDate] = useState("");
 
     const notes = allUserData?.notes || [];
 
@@ -30,13 +31,13 @@ export default function Dashboard({
     const isPastMonth = !isCurrentMonth;
 
     const goToPrev = () => {
-        setTab("overview"); setFilterCat("All");
+        setTab("overview"); setFilterCat("All"); setFilterDate("");
         if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
         else { setViewMonth(m => m - 1); }
     };
     const goToNext = () => {
         if (isCurrentMonth) return;
-        setTab("overview"); setFilterCat("All");
+        setTab("overview"); setFilterCat("All"); setFilterDate("");
         if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
         else { setViewMonth(m => m + 1); }
     };
@@ -79,9 +80,10 @@ export default function Dashboard({
     const pieData = catKeys.map(c => ({ name: c, value: catStats[c]?.total || 0, color: cats[c]?.color || "#f97316" })).filter(d => d.value > 0);
 
     const filteredExpenses = useMemo(() => {
-        const list = filterCat === "All" ? expenses : expenses.filter(e => e.category === filterCat);
+        let list = filterCat === "All" ? expenses : expenses.filter(e => e.category === filterCat);
+        if (filterDate) list = list.filter(e => e.date === filterDate);
         return [...list].sort((a, b) => new Date(b.date) - new Date(a.date));
-    }, [expenses, filterCat]);
+    }, [expenses, filterCat, filterDate]);
 
     const todayStr = TODAY.toISOString().split("T")[0];
     const todaySpent = expenses.filter(e => e.date === todayStr).reduce((s, e) => s + e.amount, 0);
@@ -315,7 +317,7 @@ export default function Dashboard({
                                             <div key={c} style={S.card}>
                                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
                                                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                                        <div style={{ width: 40, height: 40, borderRadius: 12, background: color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{cats[c]?.icon}</div>
+                                                        <div className="emoji-icon" style={{ width: 40, height: 40, borderRadius: 12, background: color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>{cats[c]?.icon}</div>
                                                         <div>
                                                             <div style={{ fontWeight: 800, fontSize: 15 }}>{c}</div>
                                                             <div style={{ color: "rgba(240,236,228,0.35)", fontSize: 11 }}>{Object.keys(catStats[c]?.subs || {}).length} sub-categories</div>
@@ -447,12 +449,27 @@ export default function Dashboard({
                             {/* EXPENSES TAB */}
                             {tab === "expenses" && (
                                 <div>
-                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-                                        {["All", ...catKeys].map(c => (
-                                            <button key={c} onClick={() => setFilterCat(c)} style={{ ...S.pill(filterCat === c, cats[c]?.color || "#f97316"), ...(c === "All" && filterCat === "All" ? { borderColor: "#fbbf24", color: "#fbbf24", background: "rgba(251,191,36,0.1)" } : {}) }}>
-                                                {c !== "All" && cats[c]?.icon + " "}{c}
-                                            </button>
-                                        ))}
+                                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16, alignItems: "center", justifyContent: "space-between" }}>
+                                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", flex: 1 }}>
+                                            {["All", ...catKeys].map(c => (
+                                                <button key={c} onClick={() => setFilterCat(c)} style={{ ...S.pill(filterCat === c, cats[c]?.color || "#f97316"), ...(c === "All" && filterCat === "All" ? { borderColor: "#fbbf24", color: "#fbbf24", background: "rgba(251,191,36,0.1)" } : {}) }}>
+                                                    {c !== "All" && cats[c]?.icon + " "}{c}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                            <input
+                                                type="date"
+                                                value={filterDate}
+                                                onChange={(e) => setFilterDate(e.target.value)}
+                                                style={{ ...S.input, padding: "8px 12px", width: "auto", minWidth: 140, marginBottom: 0 }}
+                                            />
+                                            {filterDate && (
+                                                <button onClick={() => setFilterDate("")} style={{ background: "rgba(255,255,255,0.06)", border: "none", color: "rgba(240,236,228,0.6)", padding: "10px 14px", borderRadius: 12, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+                                                    Clear Date
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                     <div style={S.card}>
                                         {filteredExpenses.length === 0
@@ -461,7 +478,7 @@ export default function Dashboard({
                                                 const color = cats[e.category]?.color || "#f97316";
                                                 return (
                                                     <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderBottom: i < filteredExpenses.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
-                                                        <div style={{ width: 42, height: 42, borderRadius: 12, background: color + "18", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
+                                                        <div className="emoji-icon" style={{ width: 42, height: 42, borderRadius: 12, background: color + "18", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>
                                                             {cats[e.category]?.icon || "💳"}
                                                         </div>
                                                         <div style={{ flex: 1, minWidth: 0 }}>
@@ -506,7 +523,7 @@ export default function Dashboard({
 
             {/* MODALS */}
             {showModal && currentBudget && (
-                <AddExpenseModal budget={currentBudget} onAdd={onAddExpense} onClose={() => setShowModal(false)} />
+                <AddExpenseModal budget={currentBudget} customCategories={allUserData?.customCategories} onAdd={onAddExpense} onClose={() => setShowModal(false)} />
             )}
             {showCatManager && (
                 <CategoryManager

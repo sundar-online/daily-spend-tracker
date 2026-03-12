@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { S } from "../styles/shared.jsx";
 import { DEFAULT_CATS } from "../utils/constants";
 
-export default function AddExpenseModal({ budget, onAdd, onClose }) {
-    const cats = budget.customCategories
-        ? { ...DEFAULT_CATS, ...budget.customCategories }
+export default function AddExpenseModal({ budget, customCategories, onAdd, onClose }) {
+    const cats = customCategories
+        ? { ...DEFAULT_CATS, ...customCategories }
         : DEFAULT_CATS;
     const catKeys = Object.keys(cats);
 
@@ -58,13 +58,11 @@ export default function AddExpenseModal({ budget, onAdd, onClose }) {
                 <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ ...S.input, marginBottom: 20 }} />
 
                 <label style={S.label}>Main Category</label>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+                <select value={cat} onChange={e => { setCat(e.target.value); const newSubs = [...(cats[e.target.value]?.subs || []), ...(DEFAULT_CATS[e.target.value]?.subs || []).filter(s => !(cats[e.target.value]?.subs || []).includes(s))].filter((v, i, a) => a.indexOf(v) === i); setSub(newSubs[0] || ""); setAddingNew(false); }} style={{ ...S.select, marginBottom: 20 }}>
                     {catKeys.map(c => (
-                        <button key={c} onClick={() => setCat(c)} style={{ ...S.pill(cat === c, cats[c]?.color || "#f97316"), display: "flex", alignItems: "center", gap: 6 }}>
-                            <span>{cats[c]?.icon}</span>{c}
-                        </button>
+                        <option key={c} value={c}>{cats[c]?.icon} {c}</option>
                     ))}
-                </div>
+                </select>
 
                 <label style={S.label}>Sub-Category</label>
                 {!addingNew ? (
