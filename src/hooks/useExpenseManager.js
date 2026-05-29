@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { CURRENT_MONTH, CURRENT_YEAR, DEFAULT_CATS } from "../utils/constants";
 import { monthKey } from "../utils/storage";
-import { supabase } from "../utils/supabaseClient";
+import { auth } from "../utils/firebaseClient";
 import {
     fetchUserData,
     upsertBudget,
@@ -9,12 +10,12 @@ import {
     deleteExpenseById,
     upsertCategories,
     saveAllNotes,
-} from "../utils/supabaseStorage";
+} from "../utils/firebaseStorage";
 
 /**
  * Custom hook that encapsulates all the app-level state management:
  * user auth, budget operations, expense CRUD, categories, and notes.
- * Now powered by Supabase instead of localStorage.
+ * Powered by Firebase Auth + Firestore.
  */
 export function useExpenseManager() {
     const [user, setUser] = useState(null);        // { id, email }
@@ -22,7 +23,7 @@ export function useExpenseManager() {
     const [allUserData, setAllUserData] = useState(null);
     const [loading, setLoading] = useState(true);   // initial session check
 
-    // Load user data from Supabase
+    // Load user data from Firestore
     const loadData = useCallback(async (userId) => {
         try {
             const data = await fetchUserData(userId);
@@ -35,34 +36,28 @@ export function useExpenseManager() {
         }
     }, []);
 
-    // Restore session on mount
+    // Firebase Auth — onAuthStateChanged handles session restore automatically
     useEffect(() => {
-        const initSession = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user) {
-                const u = { id: session.user.id, email: session.user.email };
+        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+            if (firebaseUser) {
+                const u = { id: firebaseUser.uid, email: firebaseUser.email };
                 setUser(u);
                 await loadData(u.id);
+            } else {
+                setUser(null);
+                setScreen("auth");
+                setAllUserData(null);
             }
             setLoading(false);
-        };
-        initSession();
+        });
 
-        // Listen for auth changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (event, session) => {
-                if (event === 'SIGNED_OUT') {
-                    setUser(null);
-                    setScreen("auth");
-                    setAllUserData(null);
-                }
-            }
-        );
-
-        return () => subscription.unsubscribe();
+        return () => unsubscribe();
     }, [loadData]);
 
     const login = async (authUser) => {
+        // Called after successful sign-in from AuthScreen.
+        // onAuthStateChanged fires automatically, but we still set user
+        // immediately for a snappier UI response.
         setUser(authUser);
         setLoading(true);
         await loadData(authUser.id);
@@ -70,16 +65,13 @@ export function useExpenseManager() {
     };
 
     const logout = async () => {
-        await supabase.auth.signOut();
-        setUser(null);
-        setScreen("auth");
-        setAllUserData(null);
+        await signOut(auth);
+        // onAuthStateChanged will fire and clear state automatically
     };
 
     const saveBudget = async (budget) => {
         try {
             await upsertBudget(user.id, budget);
-            // Reload data to stay in sync
             await loadData(user.id);
             setScreen("dashboard");
         } catch (err) {
@@ -92,7 +84,7 @@ export function useExpenseManager() {
         try {
             const key = monthKey(CURRENT_MONTH, CURRENT_YEAR);
 
-            // If adding a new subcategory, update custom categories
+            // If adding a new subcategory, update custom categories first
             if (expense.isNewSub) {
                 const currentCats = allUserData?.customCategories || {};
                 const base = DEFAULT_CATS[expense.category]
@@ -116,7 +108,7 @@ export function useExpenseManager() {
 
     const deleteExpense = async (expenseId) => {
         try {
-            await deleteExpenseById(expenseId);
+            await deleteExpenseById(user.id, expenseId);
             await loadData(user.id);
         } catch (err) {
             console.error("Failed to delete expense:", err);

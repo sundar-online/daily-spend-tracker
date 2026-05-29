@@ -1,6 +1,10 @@
 import { useState } from "react";
+import {
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+} from "firebase/auth";
 import { S, FontLink } from "../styles/shared.jsx";
-import { supabase } from "../utils/supabaseClient";
+import { auth } from "../utils/firebaseClient";
 
 export default function AuthScreen({ onLogin }) {
     const [mode, setMode] = useState("login");
@@ -18,26 +22,26 @@ export default function AuthScreen({ onLogin }) {
             if (mode === "signup") {
                 if (f.password !== f.confirm) { setLoading(false); return setErr("Passwords don't match."); }
                 if (f.password.length < 6) { setLoading(false); return setErr("Password must be at least 6 characters."); }
-                const { data, error } = await supabase.auth.signUp({
-                    email: f.email.trim(),
-                    password: f.password,
-                });
-                if (error) { setLoading(false); return setErr(error.message); }
-                if (data.user) {
-                    onLogin({ id: data.user.id, email: data.user.email });
-                }
+                const cred = await createUserWithEmailAndPassword(auth, f.email.trim(), f.password);
+                onLogin({ id: cred.user.uid, email: cred.user.email });
             } else {
-                const { data, error } = await supabase.auth.signInWithPassword({
-                    email: f.email.trim(),
-                    password: f.password,
-                });
-                if (error) { setLoading(false); return setErr(error.message); }
-                if (data.user) {
-                    onLogin({ id: data.user.id, email: data.user.email });
-                }
+                const cred = await signInWithEmailAndPassword(auth, f.email.trim(), f.password);
+                onLogin({ id: cred.user.uid, email: cred.user.email });
             }
         } catch (ex) {
-            setErr(ex.message || "Something went wrong.");
+            // Map Firebase error codes to friendly messages
+            const code = ex.code || "";
+            if (code === "auth/user-not-found" || code === "auth/wrong-password" || code === "auth/invalid-credential") {
+                setErr("Invalid email or password.");
+            } else if (code === "auth/email-already-in-use") {
+                setErr("An account with this email already exists.");
+            } else if (code === "auth/invalid-email") {
+                setErr("Please enter a valid email address.");
+            } else if (code === "auth/too-many-requests") {
+                setErr("Too many attempts. Please try again later.");
+            } else {
+                setErr(ex.message || "Something went wrong.");
+            }
         }
         setLoading(false);
     };
@@ -80,7 +84,7 @@ export default function AuthScreen({ onLogin }) {
                             {loading ? "Please wait…" : mode === "login" ? "Log In →" : "Create Account →"}
                         </button>
                     </form>
-                    <p style={{ textAlign: "center", color: "rgba(240,236,228,0.2)", fontSize: 11, marginTop: 20, marginBottom: 0 }}>Sign up with your email & password (min 6 chars)</p>
+                    <p style={{ textAlign: "center", color: "rgba(240,236,228,0.2)", fontSize: 11, marginTop: 20, marginBottom: 0 }}>Sign up with your email &amp; password (min 6 chars)</p>
                 </div>
             </div>
         </div>
