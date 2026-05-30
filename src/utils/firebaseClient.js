@@ -20,12 +20,12 @@ import {
 
 // ── Config reads from .env.local (VITE_ prefix required by Vite) ──
 const firebaseConfig = {
-    apiKey:            import.meta.env.VITE_FIREBASE_API_KEY             ?? 'AIzaSyD59ewUm8tQYj4Vg_a-vPEmJ3Rd5khVwtY',
-    authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN         ?? 'goalforage.firebaseapp.com',
-    projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID          ?? 'goalforage',
-    storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET      ?? 'goalforage.firebasestorage.app',
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ?? '47005570215',
-    appId:             import.meta.env.VITE_FIREBASE_APP_ID              ?? '1:47005570215:web:43050232fd7075dee27782',
+    apiKey:            import.meta.env.VITE_FIREBASE_API_KEY             ?? 'AIzaSyBCKmkywiIvC8rhV200uOXoxNL_Slh8bM8',
+    authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN         ?? 'expense-tracker-21174.firebaseapp.com',
+    projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID          ?? 'expense-tracker-21174',
+    storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET      ?? 'expense-tracker-21174.firebasestorage.app',
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ?? '423899606915',
+    appId:             import.meta.env.VITE_FIREBASE_APP_ID              ?? '1:423899606915:web:66996d971936d71e9e50b6',
 };
 
 // Initialize Firebase App (guard against HMR double-init)
