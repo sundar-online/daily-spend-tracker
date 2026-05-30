@@ -17,6 +17,7 @@ import {
     createSavingsGoal,
     addSavingsContribution,
     deleteSavingsGoal,
+    ensureMonthInitialized,
 } from "../utils/firebaseStorage";
 
 /**
@@ -75,10 +76,16 @@ export function useExpenseManager() {
     // Load user data from Firestore
     const loadData = useCallback(async (userId) => {
         try {
-            const data = await fetchUserData(userId);
-            setAllUserData(data);
+            let data = await fetchUserData(userId);
             const curKey = monthKey(CURRENT_MONTH, CURRENT_YEAR);
-            setScreen(data.months?.[curKey]?.budget ? "dashboard" : "setup");
+            if (!data.months?.[curKey]?.budget) {
+                // Auto-initialize current month
+                await ensureMonthInitialized(userId, CURRENT_MONTH, CURRENT_YEAR);
+                // Re-fetch data
+                data = await fetchUserData(userId);
+            }
+            setAllUserData(data);
+            setScreen("dashboard");
         } catch (err) {
             console.error("Failed to load data:", err);
             setScreen("setup");
@@ -296,6 +303,18 @@ export function useExpenseManager() {
         }
     };
 
+    const ensureMonthInitializedAction = useCallback(async (month, year) => {
+        if (!user) return;
+        try {
+            const didInit = await ensureMonthInitialized(user.id, month, year);
+            if (didInit) {
+                await loadData(user.id);
+            }
+        } catch (err) {
+            console.error("Failed to ensure month initialized:", err);
+        }
+    }, [user, loadData]);
+
     const currentKey = monthKey(CURRENT_MONTH, CURRENT_YEAR);
     const currentBudget = allUserData?.months?.[currentKey]?.budget || null;
 
@@ -325,5 +344,6 @@ export function useExpenseManager() {
         saveSavingsGoal,
         contributeToGoal,
         removeSavingsGoal,
+        ensureMonthInitializedAction,
     };
 }

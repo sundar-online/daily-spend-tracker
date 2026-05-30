@@ -60,6 +60,7 @@ export default function Dashboard({
     onAddExpense, onDeleteExpense, onLogout,
     onEditBudget, onSetupMonthBudget, onSaveCategories, onSaveNotes,
     onSaveSavingsGoal, onContributeToGoal, onDeleteSavingsGoal,
+    onEnsureMonthInitialized,
     showToast, askConfirm,
 }) {
     const [showModal, setShowModal] = useState(false);
@@ -84,6 +85,12 @@ export default function Dashboard({
             setLastSelectedMonthKey(selectedYearMonthKey);
         }
     }, [selectedYearMonthKey]);
+
+    useEffect(() => {
+        if (viewMonth !== null && viewYear !== null && onEnsureMonthInitialized) {
+            onEnsureMonthInitialized(viewMonth, viewYear);
+        }
+    }, [viewMonth, viewYear, onEnsureMonthInitialized]);
 
     useEffect(() => {
         const handleGlobalClick = () => {
@@ -131,8 +138,10 @@ export default function Dashboard({
     const catKeys = Object.keys(cats);
 
     const totalSpent = expenses.reduce((s, e) => s + e.amount, 0);
-    const remaining = budget ? budget.total - totalSpent : 0;
-    const usedPct = budget ? Math.min(100, (totalSpent / budget.total) * 100) : 0;
+    const carryForward = budget ? (budget.carryForwardFromPrevMonth || 0) : 0;
+    const availableBudget = budget ? (budget.availableBudget || budget.total) : 0;
+    const remaining = availableBudget - totalSpent;
+    const usedPct = availableBudget > 0 ? Math.min(100, (totalSpent / availableBudget) * 100) : 0;
 
     const catStats = useMemo(() => {
         const localCatKeys = Object.keys(cats);
@@ -748,19 +757,46 @@ export default function Dashboard({
                             <div className="hero-cards-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 24 }}>
                                 {[
                                     { label: "Monthly Budget", val: `₹${budget.total.toLocaleString()}`, icon: "🎯", color: "#fbbf24", sub: budget.sources.map(s => s.name).join(" + ") },
-                                    { label: "Total Spent", val: `₹${totalSpent.toLocaleString()}`, icon: "💸", color: "#f97316", sub: `${usedPct.toFixed(1)}% of budget` },
+                                    { label: "Total Spent", val: `₹${totalSpent.toLocaleString()}`, icon: "💸", color: "#f97316", sub: `${usedPct.toFixed(1)}% of available` },
                                     { label: "Remaining", val: `₹${Math.abs(remaining).toLocaleString()}`, icon: remaining >= 0 ? "💚" : "🔴", color: remaining >= 0 ? "#10b981" : "#f87171", sub: remaining >= 0 ? "available" : "over budget!" },
                                     isCurrentMonth
                                         ? { label: "Today's Spend", val: `₹${todaySpent.toLocaleString()}`, icon: "📅", color: "#06b6d4", sub: `${expenses.filter(e => e.date === todayStr).length} transactions` }
                                         : { label: "Transactions", val: expenses.length.toString(), icon: "🧾", color: "#a78bfa", sub: `across ${pieData.length} categories` },
-                                ].map((c, i) => (
-                                    <div key={i} style={{ ...S.card, position: "relative", overflow: "hidden" }}>
-                                        <div style={{ position: "absolute", top: -10, right: -10, fontSize: 48, opacity: 0.05 }}>{c.icon}</div>
-                                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(240,236,228,0.35)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>{c.label}</div>
-                                        <div style={{ fontSize: 24, fontWeight: 900, color: c.color, fontFamily: "'JetBrains Mono',monospace", marginBottom: 4 }}>{c.val}</div>
-                                        <div style={{ fontSize: 11, color: "rgba(240,236,228,0.35)" }}>{c.sub}</div>
-                                    </div>
-                                ))}
+                                ].map((c, i) => {
+                                    if (i === 0) {
+                                        const carryForwardVal = budget.carryForwardFromPrevMonth || 0;
+                                        return (
+                                            <div key={i} style={{ ...S.card, position: "relative", overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 110 }}>
+                                                <div style={{ position: "absolute", top: -10, right: -10, fontSize: 48, opacity: 0.05 }}>{c.icon}</div>
+                                                <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(240,236,228,0.35)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>{c.label}</div>
+                                                <div style={{ display: "flex", flexDirection: "column", gap: 5, width: "100%", zIndex: 1 }}>
+                                                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "rgba(240,236,228,0.6)" }}>
+                                                        <span>Base Budget</span>
+                                                        <span style={{ fontFamily: "'JetBrains Mono',monospace" }}>₹{budget.total.toLocaleString()}</span>
+                                                    </div>
+                                                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: carryForwardVal >= 0 ? "#10b981" : "#f87171" }}>
+                                                        <span>Carry Forward</span>
+                                                        <span style={{ fontFamily: "'JetBrains Mono',monospace" }}>
+                                                            {carryForwardVal >= 0 ? "+" : "-"}₹{Math.abs(carryForwardVal).toLocaleString()}
+                                                        </span>
+                                                    </div>
+                                                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginTop: 4, paddingTop: 4, display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 800, color: "#fbbf24" }}>
+                                                        <span>Available Budget</span>
+                                                        <span style={{ fontFamily: "'JetBrains Mono',monospace" }}>₹{availableBudget.toLocaleString()}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+                                    return (
+                                        <div key={i} style={{ ...S.card, position: "relative", overflow: "hidden" }}>
+                                            <div style={{ position: "absolute", top: -10, right: -10, fontSize: 48, opacity: 0.05 }}>{c.icon}</div>
+                                            <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(240,236,228,0.35)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>{c.label}</div>
+                                            <div style={{ fontSize: 24, fontWeight: 900, color: c.color, fontFamily: "'JetBrains Mono',monospace", marginBottom: 4 }}>{c.val}</div>
+                                            <div style={{ fontSize: 11, color: "rgba(240,236,228,0.35)" }}>{c.sub}</div>
+                                        </div>
+                                    );
+                                })}
                             </div>
 
                             {/* BUDGET PROGRESS BAR */}
@@ -774,7 +810,7 @@ export default function Dashboard({
                                 </div>
                                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
                                     <span style={{ fontSize: 11, color: "rgba(240,236,228,0.25)" }}>₹0</span>
-                                    <span style={{ fontSize: 11, color: "rgba(240,236,228,0.25)" }}>₹{budget.total.toLocaleString()}</span>
+                                    <span style={{ fontSize: 11, color: "rgba(240,236,228,0.25)" }}>₹{availableBudget.toLocaleString()}</span>
                                 </div>
                                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 16 }}>
                                     {budget.sources.map((src, i) => (
@@ -1455,7 +1491,7 @@ export default function Dashboard({
                                                         const [ky, km] = k.split("-");
                                                         const mData = allUserData.months?.[k];
                                                         const spent = (mData?.expenses || []).reduce((s, e) => s + e.amount, 0);
-                                                        const bud = mData?.budget?.total || 0;
+                                                        const bud = mData?.budget?.availableBudget || mData?.budget?.total || 0;
                                                         return { name: `${MONTHS[parseInt(km) - 1].slice(0, 3)} ${ky}`, Spent: spent, Budget: bud };
                                                     })}
                                                     margin={{ top: 0, right: 0, left: -20, bottom: 0 }}

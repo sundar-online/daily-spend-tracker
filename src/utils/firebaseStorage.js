@@ -50,12 +50,33 @@ export async function fetchUserData(userId) {
         const b   = snap.data();
         const key = snap.id; // stored as monthKey e.g. "2025-01"
         if (!months[key]) months[key] = { expenses: [] };
+        
+        let monthNum = 0;
+        let yearNum = 2026;
+        if (typeof b.month === 'string' && b.month.includes('-')) {
+            const [yStr, mStr] = b.month.split('-');
+            yearNum = parseInt(yStr, 10);
+            monthNum = parseInt(mStr, 10) - 1; // 0-indexed
+        } else if (typeof b.month === 'number') {
+            monthNum = b.month;
+            yearNum = b.year || 2026;
+        } else {
+            const [yStr, mStr] = key.split('-');
+            yearNum = parseInt(yStr, 10);
+            monthNum = parseInt(mStr, 10) - 1;
+        }
+
         months[key].budget = {
-            month:   b.month,
-            year:    b.year,
-            total:   Number(b.total),
-            sources: b.sources || [],
-            id:      snap.id,
+            month:                     monthNum,
+            year:                      yearNum,
+            total:                     Number(b.total || 0),
+            sources:                   b.sources || [],
+            id:                        snap.id,
+            spent:                     Number(b.spent ?? 0),
+            remaining:                 Number(b.remaining ?? 0),
+            carryForwardToNextMonth:   Number(b.carryForwardToNextMonth ?? 0),
+            carryForwardFromPrevMonth: Number(b.carryForwardFromPrevMonth ?? 0),
+            availableBudget:           Number(b.availableBudget ?? (b.total || 0)),
         };
     });
 
@@ -149,12 +170,14 @@ export async function upsertBudget(userId, budget) {
     const key = monthKey(budget.month, budget.year);
     const ref = budgetRef(userId, key);
     await setDoc(ref, {
-        month:     budget.month,
+        month:     key, // Store as string "YYYY-MM"
         year:      budget.year,
         total:     budget.total,
+        budget:    budget.total,
         sources:   budget.sources || [],
         updatedAt: serverTimestamp(),
     }, { merge: true });
+    await recalculateAndPropagate(userId);
     return { id: key, ...budget };
 }
 
@@ -175,6 +198,7 @@ export async function insertExpense(userId, expense, mKey) {
         isRecurring: expense.isRecurring || false,
         createdAt:   serverTimestamp(),
     });
+    await recalculateAndPropagate(userId);
     return { id: docRef.id, ...expense };
 }
 
@@ -183,6 +207,7 @@ export async function insertExpense(userId, expense, mKey) {
 // ─────────────────────────────────────────────────────────────
 export async function deleteExpenseById(userId, expenseId) {
     await deleteDoc(expenseRef(userId, expenseId));
+    await recalculateAndPropagate(userId);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -332,7 +357,10 @@ export async function generateRecurringExpensesForMonth(userId, rules, month, ye
         });
     });
 
-    if (inserted > 0) await batch.commit();
+    if (inserted > 0) {
+        await batch.commit();
+        await recalculateAndPropagate(userId);
+    }
     return inserted;
 }
 
@@ -356,4 +384,150 @@ export async function addSavingsContribution(userId, goalId, amount, currentSave
 
 export async function deleteSavingsGoal(userId, goalId) {
     await deleteDoc(goalRef(userId, goalId));
+}
+
+// ─────────────────────────────────────────────────────────────
+// Carry Forward Helper and Propagation logic
+// ─────────────────────────────────────────────────────────────
+
+export function getPrevMonthKey(key) {
+    const [yStr, mStr] = key.split("-");
+    const y = parseInt(yStr, 10);
+    const m = parseInt(mStr, 10) - 1; // 1-indexed to 0-indexed: 0-11
+    
+    let prevM, prevY;
+    if (m === 0) {
+        prevM = 11;
+        prevY = y - 1;
+    } else {
+        prevM = m - 1;
+        prevY = y;
+    }
+    return monthKey(prevM, prevY);
+}
+
+export function getNextMonthKey(key) {
+    const [yStr, mStr] = key.split("-");
+    const y = parseInt(yStr, 10);
+    const m = parseInt(mStr, 10) - 1; // 0-11
+    
+    let nextM, nextY;
+    if (m === 11) {
+        nextM = 0;
+        nextY = y + 1;
+    } else {
+        nextM = m + 1;
+        nextY = y;
+    }
+    return monthKey(nextM, nextY);
+}
+
+export async function recalculateAndPropagate(userId) {
+    const data = await fetchUserData(userId);
+    const monthsObj = data.months || {};
+    
+    const sortedKeys = Object.keys(monthsObj)
+        .filter(k => monthsObj[k]?.budget)
+        .sort();
+        
+    const carryForwards = {};
+    const batch = writeBatch(db);
+    let hasChanges = false;
+    
+    for (const key of sortedKeys) {
+        const budgetObj = monthsObj[key].budget;
+        const prevKey = getPrevMonthKey(key);
+        const carryForwardFromPrev = carryForwards[prevKey] || 0;
+        
+        const baseBudget = Number(budgetObj.total || 0);
+        const availableBudget = baseBudget + carryForwardFromPrev;
+        const spent = (monthsObj[key].expenses || []).reduce((s, e) => s + e.amount, 0);
+        const remaining = availableBudget - spent;
+        
+        carryForwards[key] = remaining;
+        
+        const currentCFPrev = budgetObj.carryForwardFromPrevMonth || 0;
+        const currentCFNext = budgetObj.carryForwardToNextMonth || 0;
+        const currentSpent = budgetObj.spent || 0;
+        const currentRemaining = budgetObj.remaining || 0;
+        const currentAvail = budgetObj.availableBudget || 0;
+        const currentBudgetVal = budgetObj.budget || 0;
+        const currentMonthStr = budgetObj.month;
+        
+        const needsUpdate = 
+            currentCFPrev !== carryForwardFromPrev ||
+            currentCFNext !== remaining ||
+            currentSpent !== spent ||
+            currentRemaining !== remaining ||
+            currentAvail !== availableBudget ||
+            currentBudgetVal !== baseBudget ||
+            currentMonthStr !== key;
+            
+        if (needsUpdate) {
+            hasChanges = true;
+            const ref = doc(db, 'users', userId, 'budgets', key);
+            batch.set(ref, {
+                month: key, // Store as string "YYYY-MM"
+                budget: baseBudget,
+                total: baseBudget,
+                spent,
+                remaining,
+                carryForwardToNextMonth: remaining,
+                carryForwardFromPrevMonth: carryForwardFromPrev,
+                availableBudget,
+                sources: budgetObj.sources || [],
+                year: budgetObj.year,
+                updatedAt: serverTimestamp(),
+            }, { merge: true });
+        }
+    }
+    
+    if (hasChanges) {
+        await batch.commit();
+    }
+}
+
+export async function ensureMonthInitialized(userId, month, year) {
+    const key = monthKey(month, year);
+    const ref = doc(db, 'users', userId, 'budgets', key);
+    const snap = await getDoc(ref);
+    
+    if (snap.exists()) {
+        return false;
+    }
+    
+    const data = await fetchUserData(userId);
+    const prevKey = getPrevMonthKey(key);
+    const prevBudget = data.months?.[prevKey]?.budget;
+    
+    let sources = [];
+    let total = 0;
+    
+    if (prevBudget && prevBudget.sources && prevBudget.sources.length > 0) {
+        sources = prevBudget.sources.map(s => ({ name: s.name, amount: Number(s.amount) || 0 }));
+        total = sources.reduce((sum, s) => sum + s.amount, 0);
+    } else {
+        sources = [
+            { name: "Parents", amount: 0 },
+            { name: "Earnings", amount: 0 }
+        ];
+        total = 0;
+    }
+    
+    await setDoc(ref, {
+        month: key, // Store as string "YYYY-MM"
+        year,
+        total,
+        budget: total,
+        spent: 0,
+        remaining: 0,
+        carryForwardToNextMonth: 0,
+        carryForwardFromPrevMonth: 0,
+        availableBudget: total,
+        sources,
+        updatedAt: serverTimestamp(),
+    });
+    
+    await recalculateAndPropagate(userId);
+    return true;
 }

@@ -12,7 +12,8 @@ export default function App() {
     saveCategories, saveNotes,
     ensureRecurringForMonth, saveRecurringRule, removeRecurringRule,
     saveSavingsGoal, contributeToGoal, removeSavingsGoal,
-    toasts, showToast, removeToast, confirmDialog, askConfirm, closeConfirm
+    toasts, showToast, removeToast, confirmDialog, askConfirm, closeConfirm,
+    ensureMonthInitializedAction
   } = useExpenseManager();
 
   // Show loading spinner while checking session
@@ -63,6 +64,7 @@ export default function App() {
         onSaveSavingsGoal={saveSavingsGoal}
         onContributeToGoal={contributeToGoal}
         onDeleteSavingsGoal={removeSavingsGoal}
+        onEnsureMonthInitialized={ensureMonthInitializedAction}
         showToast={showToast}
         askConfirm={askConfirm}
       />

@@ -27,6 +27,10 @@ export default function BudgetSetup({ allUserData, targetMonth, targetYear, onSa
     }, [month, year, allUserData]);
 
     const total = sources.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    const prevKey = monthKey(month === 0 ? 11 : month - 1, month === 0 ? year - 1 : year);
+    const prevBudget = allUserData?.months?.[prevKey]?.budget;
+    const carryForward = prevBudget ? (prevBudget.remaining ?? 0) : 0;
+    const estimatedAvailable = total + carryForward;
 
     const handleAddSource = () => {
         const name = newSrc.trim();
@@ -95,8 +99,13 @@ export default function BudgetSetup({ allUserData, targetMonth, targetYear, onSa
                             <p style={{ margin: 0, color: "rgba(240,236,228,0.35)", fontSize: 12 }}>Where does your money come from?</p>
                         </div>
                         <div style={{ textAlign: "right" }}>
-                            <div style={{ fontSize: 11, color: "rgba(240,236,228,0.4)", fontWeight: 700 }}>TOTAL</div>
-                            <div style={{ fontSize: 22, fontWeight: 900, color: "#fbbf24", fontFamily: "'JetBrains Mono',monospace" }}>₹{total.toLocaleString()}</div>
+                            <div style={{ fontSize: 10, color: "rgba(240,236,228,0.4)", fontWeight: 700 }}>BASE INCOME</div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: "#ffffff", fontFamily: "'JetBrains Mono',monospace" }}>₹{total.toLocaleString()}</div>
+                            <div style={{ fontSize: 10, color: carryForward >= 0 ? "#10b981" : "#f87171", marginTop: 2 }}>
+                                Carry Forward: {carryForward >= 0 ? "+" : "-"}₹{Math.abs(carryForward).toLocaleString()}
+                            </div>
+                            <div style={{ fontSize: 10, color: "rgba(240,236,228,0.4)", fontWeight: 700, marginTop: 4 }}>EST. AVAILABLE</div>
+                            <div style={{ fontSize: 22, fontWeight: 900, color: "#fbbf24", fontFamily: "'JetBrains Mono',monospace" }}>₹{estimatedAvailable.toLocaleString()}</div>
                         </div>
                     </div>
 
