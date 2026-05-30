@@ -10,8 +10,7 @@ export default function CategoryManager({ customCategories, onSave, onClose }) {
         });
         Object.entries(customCategories || {}).forEach(([k, v]) => {
             if (merged[k]) {
-                const allSubs = [...new Set([...merged[k].subs, ...(v.subs || [])])];
-                merged[k] = { ...merged[k], ...v, subs: allSubs, isDefault: true };
+                merged[k] = { ...merged[k], ...v, subs: [...(v.subs || [])], isDefault: true };
             } else {
                 merged[k] = { ...v, isDefault: false, subs: [...(v.subs || [])] };
             }
@@ -69,8 +68,8 @@ export default function CategoryManager({ customCategories, onSave, onClose }) {
                 custom[k] = { icon: v.icon, color: v.color, subs: v.subs };
             } else {
                 const defaultSubs = DEFAULT_CATS[k]?.subs || [];
-                const extraSubs = v.subs.filter(s => !defaultSubs.includes(s));
-                if (extraSubs.length > 0 || v.icon !== DEFAULT_CATS[k]?.icon || v.color !== DEFAULT_CATS[k]?.color) {
+                const isDifferentSubs = v.subs.length !== defaultSubs.length || v.subs.some(s => !defaultSubs.includes(s));
+                if (isDifferentSubs || v.icon !== DEFAULT_CATS[k]?.icon || v.color !== DEFAULT_CATS[k]?.color) {
                     custom[k] = { icon: v.icon, color: v.color, subs: v.subs };
                 }
             }
@@ -135,8 +134,8 @@ export default function CategoryManager({ customCategories, onSave, onClose }) {
                                     ))}
                                 </div>
                                 <div style={{ display: "flex", gap: 8 }}>
-                                    <input type="text" placeholder="Add sub-category…" value={addSubText} onChange={e => setAddSubText(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && addSubText.trim()) { setEditSubs(prev => [...prev, addSubText.trim()]); setAddSubText(""); } }} style={{ ...S.input, flex: 1, fontSize: 12 }} />
-                                    <button onClick={() => { if (addSubText.trim()) { setEditSubs(prev => [...prev, addSubText.trim()]); setAddSubText(""); } }} style={{ ...S.btn, background: "rgba(249,115,22,0.15)", color: "#f97316", border: "1px solid rgba(249,115,22,0.25)", padding: "8px 14px", fontSize: 12 }}>+</button>
+                                    <input type="text" placeholder="Add sub-category…" value={addSubText} onChange={e => setAddSubText(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && addSubText.trim()) { const val = addSubText.trim(); if (!editSubs.includes(val)) setEditSubs(prev => [...prev, val]); setAddSubText(""); } }} style={{ ...S.input, flex: 1, fontSize: 12 }} />
+                                    <button onClick={() => { if (addSubText.trim()) { const val = addSubText.trim(); if (!editSubs.includes(val)) setEditSubs(prev => [...prev, val]); setAddSubText(""); } }} style={{ ...S.btn, background: "rgba(249,115,22,0.15)", color: "#f97316", border: "1px solid rgba(249,115,22,0.25)", padding: "8px 14px", fontSize: 12 }}>+</button>
                                 </div>
 
                                 <button onClick={saveEdit} style={{ ...S.btn, width: "100%", marginTop: 14, background: "linear-gradient(135deg," + editColor + "," + editColor + "aa)", color: "#fff", fontSize: 13, padding: "10px" }}>Save Changes</button>

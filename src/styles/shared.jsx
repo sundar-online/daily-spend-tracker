@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 // ── Shared Inline Styles ─────────────────────────────────────────────────────
 
 export const S = {

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { MONTHS, CURRENT_MONTH, CURRENT_YEAR } from "../utils/constants";
 import { S, FontLink } from "../styles/shared.jsx";
 
-export default function BudgetSetup({ username, existingBudget, targetMonth, targetYear, onSave, onBack }) {
+export default function BudgetSetup({ existingBudget, targetMonth, targetYear, onSave, onBack }) {
     const [month, setMonth] = useState(existingBudget?.month ?? targetMonth ?? CURRENT_MONTH);
     const [year] = useState(targetYear ?? CURRENT_YEAR);
     const [sources, setSources] = useState(

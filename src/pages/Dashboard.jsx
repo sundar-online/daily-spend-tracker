@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+/* eslint-disable react-hooks/exhaustive-deps */
+import { useState, useMemo, useEffect } from "react";
 import {
     AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar,
     LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, ReferenceLine,
@@ -8,13 +9,57 @@ import { monthKey } from "../utils/storage";
 import { S, FontLink } from "../styles/shared.jsx";
 import MonthNavigator from "../components/MonthNavigator";
 import AddExpenseModal from "../components/AddExpenseModal";
-import CategoryManager from "../components/CategoryManager";
 import NotesPanel from "../components/NotesPanel";
+import RecurringManagerModal from "../components/RecurringManagerModal";
+import CategoryManager from "../components/CategoryManager";
+
+const CustomBar = (props) => {
+    const { x, y, width, height, fill, payload, active } = props;
+    const value = payload.spent;
+    if (value === 0) {
+        return <rect x={x} y={y} width={width} height={0} opacity={0} />;
+    }
+    return (
+        <g>
+            {active && (
+                <rect
+                    x={x - 4}
+                    y={y}
+                    width={width + 8}
+                    height={height}
+                    fill="rgba(255, 255, 255, 0.08)"
+                    rx={6}
+                    ry={6}
+                />
+            )}
+            <rect
+                x={x}
+                y={y}
+                width={width}
+                height={height}
+                fill={fill}
+                rx={6}
+                ry={6}
+            />
+        </g>
+    );
+};
+
+const CustomTooltip = ({ active, payload, label }) => {
+    if (active && payload?.length) return (
+        <div style={{ background: "#1a1a20", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "10px 14px", fontFamily: "inherit" }}>
+            {label && <div style={{ color: "rgba(240,236,228,0.4)", fontSize: 11, marginBottom: 4 }}>{label}</div>}
+            <div style={{ color: "#fbbf24", fontWeight: 700, fontFamily: "'JetBrains Mono',monospace" }}>₹{payload[0].value.toLocaleString()}</div>
+        </div>
+    );
+    return null;
+};
 
 export default function Dashboard({
     username, allUserData, currentBudget,
     onAddExpense, onDeleteExpense, onLogout,
     onEditBudget, onSetupMonthBudget, onSaveCategories, onSaveNotes,
+    onSaveSavingsGoal, onContributeToGoal, onDeleteSavingsGoal,
 }) {
     const [showModal, setShowModal] = useState(false);
     const [showCatManager, setShowCatManager] = useState(false);
@@ -22,7 +67,26 @@ export default function Dashboard({
     const [filterCat, setFilterCat] = useState("All");
     const [filterDate, setFilterDate] = useState("");
 
+    const [dailyTrendActive, setDailyTrendActive] = useState(false);
+    const [dailySpendingActive, setDailySpendingActive] = useState(false);
+    const [categoryBreakdownActive, setCategoryBreakdownActive] = useState(false);
+    const [momActive, setMomActive] = useState(false);
+    const [showProfileMenu, setShowProfileMenu] = useState(false);
+
+    useEffect(() => {
+        const handleGlobalClick = () => {
+            setDailyTrendActive(false);
+            setDailySpendingActive(false);
+            setCategoryBreakdownActive(false);
+            setMomActive(false);
+            setShowProfileMenu(false);
+        };
+        window.addEventListener("click", handleGlobalClick);
+        return () => window.removeEventListener("click", handleGlobalClick);
+    }, []);
+
     const notes = allUserData?.notes || [];
+    const savingsGoals = allUserData?.savingsGoals || [];
 
     const [viewMonth, setViewMonth] = useState(CURRENT_MONTH);
     const [viewYear, setViewYear] = useState(CURRENT_YEAR);
@@ -55,8 +119,9 @@ export default function Dashboard({
     const usedPct = budget ? Math.min(100, (totalSpent / budget.total) * 100) : 0;
 
     const catStats = useMemo(() => {
+        const localCatKeys = Object.keys(cats);
         const stats = {};
-        catKeys.forEach(c => { stats[c] = { total: 0, subs: {} }; });
+        localCatKeys.forEach(c => { stats[c] = { total: 0, subs: {} }; });
         expenses.forEach(e => {
             if (!stats[e.category]) stats[e.category] = { total: 0, subs: {} };
             stats[e.category].total += e.amount;
@@ -64,20 +129,74 @@ export default function Dashboard({
             stats[e.category].subs[e.subCategory] += e.amount;
         });
         return stats;
-    }, [expenses, catKeys.join()]);
+    }, [expenses, cats]);
 
     const dailyStats = useMemo(() => {
-        const byDate = {};
-        expenses.forEach(e => { byDate[e.date] = (byDate[e.date] || 0) + e.amount; });
-        return Object.entries(byDate).sort((a, b) => a[0].localeCompare(b[0])).map(([date, amount]) => {
-            const d = new Date(date + "T00:00:00");
-            const dayName = DAY_NAMES[d.getDay()];
-            const dayNum = date.slice(8);
-            return { day: `${dayName} ${dayNum}`, amount };
+        const dailyTotals = {};
+        expenses.forEach(e => {
+            dailyTotals[e.date] = (dailyTotals[e.date] || 0) + e.amount;
         });
-    }, [expenses]);
 
-    const pieData = catKeys.map(c => ({ name: c, value: catStats[c]?.total || 0, color: cats[c]?.color || "#f97316" })).filter(d => d.value > 0);
+        const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+        const lastDay = (viewMonth === CURRENT_MONTH && viewYear === CURRENT_YEAR)
+            ? Math.min(TODAY.getDate(), daysInMonth)
+            : daysInMonth;
+
+        const allDays = [];
+        for (let d = 1; d <= lastDay; d++) {
+            const mm = String(viewMonth + 1).padStart(2, '0');
+            const dd = String(d).padStart(2, '0');
+            const dateKey = `${viewYear}-${mm}-${dd}`;
+            
+            const tempDate = new Date(viewYear, viewMonth, d);
+            const dayName = DAY_NAMES[tempDate.getDay()];
+            
+            allDays.push({
+                day: `${dayName} ${dd}`,
+                amount: dailyTotals[dateKey] ?? 0,
+            });
+        }
+        return allDays;
+    }, [viewYear, viewMonth, expenses]);
+
+    const pieData = Object.keys(cats).map(c => ({ name: c, value: catStats[c]?.total || 0, color: cats[c]?.color || "#f97316" })).filter(d => d.value > 0);
+
+    const categoryBreakdownData = useMemo(() => {
+        const localCatKeys = Object.keys(cats);
+        const totals = {};
+        localCatKeys.forEach((cat) => {
+            totals[cat] = 0;
+        });
+
+        expenses.forEach((exp) => {
+            if (totals[exp.category] === undefined) return;
+            const amount = Number(exp.amount);
+            if (!Number.isFinite(amount) || amount <= 0) return;
+            totals[exp.category] += amount;
+        });
+
+        // Normalization guard
+        const maxValue = Math.max(...Object.values(totals).filter(
+            v => typeof v === 'number' && !isNaN(v)
+        ), 1);
+        const MAX_BAR_HEIGHT_PX = 180;
+        const getBarHeight = (val) => 
+            (typeof val === 'number' && val > 0) 
+                ? (val / maxValue) * MAX_BAR_HEIGHT_PX 
+                : 0;
+
+        return localCatKeys.map((cat) => ({
+            name: cat,
+            spent: Number.isFinite(totals[cat]) ? totals[cat] : 0,
+            barHeight: getBarHeight(totals[cat]),
+            fill: cats[cat]?.color || "#f97316"
+        }));
+    }, [expenses, cats]);
+
+    const categoryBreakdownMaxValue = useMemo(() => {
+        const values = categoryBreakdownData.map(d => d.spent);
+        return Math.max(...values.filter(v => typeof v === 'number' && !isNaN(v)), 1);
+    }, [categoryBreakdownData]);
 
     const filteredExpenses = useMemo(() => {
         let list = filterCat === "All" ? expenses : expenses.filter(e => e.category === filterCat);
@@ -88,25 +207,87 @@ export default function Dashboard({
     const todayStr = TODAY.toISOString().split("T")[0];
     const todaySpent = expenses.filter(e => e.date === todayStr).reduce((s, e) => s + e.amount, 0);
 
-    const CustomTooltip = ({ active, payload, label }) => {
-        if (active && payload?.length) return (
-            <div style={{ background: "#1a1a20", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "10px 14px", fontFamily: "inherit" }}>
-                {label && <div style={{ color: "rgba(240,236,228,0.4)", fontSize: 11, marginBottom: 4 }}>{label}</div>}
-                <div style={{ color: "#fbbf24", fontWeight: 700, fontFamily: "'JetBrains Mono',monospace" }}>₹{payload[0].value.toLocaleString()}</div>
-            </div>
-        );
-        return null;
-    };
-
     const allMonthKeys = Object.keys(allUserData.months || {}).sort();
 
     return (
         <div style={{ ...S.app }}>
             <FontLink />
+            <style>{`
+                .recharts-wrapper:focus, 
+                .recharts-wrapper *:focus {
+                    outline: none !important;
+                    box-shadow: none !important;
+                }
+                /* Hide native input number spinners */
+                input[type="number"]::-webkit-inner-spin-button,
+                input[type="number"]::-webkit-outer-spin-button {
+                    -webkit-appearance: none;
+                    margin: 0;
+                }
+                input[type="number"] {
+                    -moz-appearance: textfield;
+                }
+                /* Make calendar picker icon visible and interactive on dark backgrounds */
+                input[type="date"]::-webkit-calendar-picker-indicator {
+                    filter: invert(1);
+                    opacity: 0.6;
+                    cursor: pointer;
+                    transition: opacity 0.15s ease;
+                }
+                input[type="date"]::-webkit-calendar-picker-indicator:hover {
+                    opacity: 0.95;
+                }
+                /* Header layout and responsiveness using CSS Grid */
+                .dashboard-header {
+                    display: grid !important;
+                    grid-template-columns: 1fr auto 1fr !important;
+                    align-items: center !important;
+                }
+                .header-brand {
+                    grid-row: 1 !important;
+                    grid-column: 1 !important;
+                    justify-self: start !important;
+                }
+                .month-navigator-wrap {
+                    grid-row: 1 !important;
+                    grid-column: 2 !important;
+                    justify-self: center !important;
+                }
+                .header-actions {
+                    grid-row: 1 !important;
+                    grid-column: 3 !important;
+                    justify-self: end !important;
+                }
+                @media (max-width: 768px) {
+                    .dashboard-header {
+                        grid-template-columns: 1fr 1fr !important;
+                        row-gap: 10px !important;
+                    }
+                    .header-brand {
+                        grid-row: 1 !important;
+                        grid-column: 1 !important;
+                        justify-self: start !important;
+                    }
+                    .header-actions {
+                        grid-row: 1 !important;
+                        grid-column: 2 !important;
+                        justify-self: end !important;
+                    }
+                    .month-navigator-wrap {
+                        grid-row: 2 !important;
+                        grid-column: 1 / span 2 !important;
+                        justify-self: center !important;
+                        width: 100%;
+                        display: flex;
+                        justify-content: center;
+                        margin-top: 4px;
+                    }
+                }
+            `}</style>
             <div style={{ position: "fixed", inset: 0, pointerEvents: "none", background: "radial-gradient(ellipse 50% 30% at 80% 10%, rgba(249,115,22,0.07) 0%, transparent 70%)" }} />
 
             {/* STICKY HEADER */}
-            <header className="dashboard-header" style={{ padding: "14px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid rgba(255,255,255,0.05)", position: "sticky", top: 0, background: "rgba(13,13,15,0.92)", backdropFilter: "blur(14px)", zIndex: 100, gap: 12, flexWrap: "wrap" }}>
+            <header className="dashboard-header" style={{ padding: "14px 24px", borderBottom: "1px solid rgba(255,255,255,0.05)", position: "sticky", top: 0, background: "rgba(13,13,15,0.92)", backdropFilter: "blur(14px)", zIndex: 100 }}>
                 <div className="header-brand" style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span style={{ fontSize: 22 }}>💸</span>
                     <div>
@@ -115,24 +296,212 @@ export default function Dashboard({
                     </div>
                 </div>
 
-                <MonthNavigator
-                    viewMonth={viewMonth} viewYear={viewYear}
-                    onPrev={goToPrev} onNext={goToNext}
-                    isCurrentMonth={isCurrentMonth} isPastMonth={isPastMonth}
-                />
+                <div className="month-navigator-wrap">
+                    <MonthNavigator
+                        viewMonth={viewMonth} viewYear={viewYear}
+                        onPrev={goToPrev} onNext={goToNext}
+                        isCurrentMonth={isCurrentMonth} isPastMonth={isPastMonth}
+                    />
+                </div>
 
-                <div className="header-actions" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ color: "rgba(240,236,228,0.4)", fontSize: 12 }}>👤 {username}</span>
-                    <button onClick={onEditBudget} style={{ ...S.btn, background: "rgba(255,255,255,0.05)", color: "rgba(240,236,228,0.55)", border: "1px solid rgba(255,255,255,0.07)", padding: "6px 12px", fontSize: 12 }}>✏️ Budget</button>
-                    <button onClick={() => setShowCatManager(true)} style={{ ...S.btn, background: "rgba(255,255,255,0.05)", color: "rgba(240,236,228,0.55)", border: "1px solid rgba(255,255,255,0.07)", padding: "6px 12px", fontSize: 12 }}>⚙️ Categories</button>
-                    <button onClick={onLogout} style={{ ...S.btn, background: "rgba(248,113,113,0.1)", color: "#f87171", border: "1px solid rgba(248,113,113,0.2)", padding: "6px 12px", fontSize: 12 }}>Logout</button>
+                <div className="header-actions" style={{ position: "relative" }}>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setShowProfileMenu(!showProfileMenu);
+                        }}
+                        style={{
+                            ...S.btn,
+                            background: "rgba(255, 255, 255, 0.04)",
+                            border: "1px solid rgba(255, 255, 255, 0.08)",
+                            padding: "6px 14px",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            borderRadius: 12,
+                            cursor: "pointer",
+                            transition: "all 0.15s ease",
+                        }}
+                    >
+                        <div style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: "50%",
+                            background: "linear-gradient(135deg, #f97316, #fbbf24)",
+                            color: "#0d0d0f",
+                            fontWeight: 800,
+                            fontSize: 12,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center"
+                        }}>
+                            {username ? username.charAt(0).toUpperCase() : "U"}
+                        </div>
+                        <span style={{ fontSize: 12, color: "rgba(240, 236, 228, 0.8)", fontWeight: 600 }}>Profile</span>
+                        <span style={{ fontSize: 10, color: "rgba(240, 236, 228, 0.4)", transform: showProfileMenu ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▼</span>
+                    </button>
+
+                    {showProfileMenu && (
+                        <div
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                                position: "absolute",
+                                right: 0,
+                                top: "calc(100% + 8px)",
+                                width: 240,
+                                background: "#12121a",
+                                border: "1px solid rgba(255, 255, 255, 0.12)",
+                                borderRadius: 16,
+                                boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
+                                backdropFilter: "blur(12px)",
+                                padding: 14,
+                                zIndex: 1000,
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 10,
+                            }}
+                        >
+                            {/* User Header */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 10, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                                <div style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: "50%",
+                                    background: "rgba(255, 255, 255, 0.05)",
+                                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                                    fontSize: 16,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center"
+                                }}>
+                                    👤
+                                </div>
+                                <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontSize: 10, color: "rgba(240, 236, 228, 0.3)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 }}>Logged In As</div>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: "#ffffff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={username}>
+                                        {username}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Menu Actions */}
+                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                <button
+                                    onClick={() => {
+                                        setShowProfileMenu(false);
+                                        onEditBudget();
+                                    }}
+                                    style={{
+                                        background: "transparent",
+                                        border: "none",
+                                        color: "rgba(240, 236, 228, 0.8)",
+                                        padding: "8px 10px",
+                                        borderRadius: 8,
+                                        cursor: "pointer",
+                                        fontSize: 12,
+                                        fontWeight: 600,
+                                        textAlign: "left",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 8,
+                                        transition: "all 0.15s ease",
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                                        e.currentTarget.style.color = "#ffffff";
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = "transparent";
+                                        e.currentTarget.style.color = "rgba(240, 236, 228, 0.8)";
+                                    }}
+                                >
+                                    <span style={{ fontSize: 13 }}>✏️</span> Adjust Budget
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setShowProfileMenu(false);
+                                        setShowCatManager(true);
+                                    }}
+                                    style={{
+                                        background: "transparent",
+                                        border: "none",
+                                        color: "rgba(240, 236, 228, 0.8)",
+                                        padding: "8px 10px",
+                                        borderRadius: 8,
+                                        cursor: "pointer",
+                                        fontSize: 12,
+                                        fontWeight: 600,
+                                        textAlign: "left",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 8,
+                                        transition: "all 0.15s ease",
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                                        e.currentTarget.style.color = "#ffffff";
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = "transparent";
+                                        e.currentTarget.style.color = "rgba(240, 236, 228, 0.8)";
+                                    }}
+                                >
+                                    <span style={{ fontSize: 13 }}>⚙️</span> Manage Categories
+                                </button>
+                            </div>
+
+                            {/* Logout Action */}
+                            <div style={{ paddingTop: 6, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                                <button
+                                    onClick={() => {
+                                        setShowProfileMenu(false);
+                                        onLogout();
+                                    }}
+                                    style={{
+                                        width: "100%",
+                                        background: "rgba(248,113,113,0.08)",
+                                        border: "1px solid rgba(248,113,113,0.15)",
+                                        color: "#f87171",
+                                        padding: "8px 10px",
+                                        borderRadius: 8,
+                                        cursor: "pointer",
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        textAlign: "center",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        gap: 6,
+                                        transition: "all 0.15s ease",
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = "rgba(248,113,113,0.15)";
+                                        e.currentTarget.style.borderColor = "rgba(248,113,113,0.3)";
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = "rgba(248,113,113,0.08)";
+                                        e.currentTarget.style.borderColor = "rgba(248,113,113,0.15)";
+                                    }}
+                                >
+                                    Logout
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </header>
 
             <div className="dashboard-main-layout" style={{ maxWidth: 1280, margin: "0 auto", padding: "24px 20px 120px", display: "flex", gap: 24, alignItems: "flex-start" }}>
 
                 {/* LEFT — NOTES PANEL */}
-                <NotesPanel notes={notes} onSaveNotes={onSaveNotes} />
+                <NotesPanel
+                    notes={notes}
+                    onSaveNotes={onSaveNotes}
+                    savingsGoals={savingsGoals}
+                    onSaveSavingsGoal={onSaveSavingsGoal}
+                    onContributeToGoal={onContributeToGoal}
+                    onDeleteSavingsGoal={onDeleteSavingsGoal}
+                />
 
                 {/* RIGHT — MAIN DASHBOARD CONTENT */}
                 <div className="dashboard-content" style={{ flex: 1, minWidth: 0 }}>
@@ -247,7 +616,13 @@ export default function Dashboard({
                                         </div>
                                         <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(240,236,228,0.45)", marginBottom: 12 }}>Daily Expense Trend</div>
                                         <ResponsiveContainer width="100%" height={180}>
-                                            <LineChart data={lineData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                                            <LineChart
+                                                data={lineData}
+                                                margin={{ top: 5, right: 10, left: -20, bottom: 0 }}
+                                                onMouseEnter={() => setDailyTrendActive(true)}
+                                                onMouseLeave={() => setDailyTrendActive(false)}
+                                                onClick={(e) => { e.stopPropagation(); setDailyTrendActive(true); }}
+                                            >
                                                 <defs>
                                                     <linearGradient id="lineGlow" x1="0" y1="0" x2="0" y2="1">
                                                         <stop offset="5%" stopColor="#f97316" stopOpacity={0.15} />
@@ -257,13 +632,15 @@ export default function Dashboard({
                                                 <XAxis dataKey="day" tick={{ fill: "rgba(240,236,228,0.3)", fontSize: 10 }} axisLine={false} tickLine={false} />
                                                 <YAxis tick={{ fill: "rgba(240,236,228,0.2)", fontSize: 10 }} axisLine={false} tickLine={false} />
                                                 <Tooltip
+                                                    active={dailyTrendActive ? undefined : false}
+                                                    cursor={false}
                                                     contentStyle={{ background: "#1a1a20", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, fontFamily: "inherit" }}
                                                     formatter={v => [`₹${v.toLocaleString()}`, "Spent"]}
                                                     labelStyle={{ color: "rgba(240,236,228,0.5)", fontSize: 11 }}
                                                     itemStyle={{ color: "#fbbf24", fontWeight: 700 }}
                                                 />
                                                 <ReferenceLine y={avgDay} stroke="#fbbf24" strokeDasharray="6 4" strokeOpacity={0.5} label={{ value: `Avg ₹${Math.round(avgDay)}`, position: "right", fill: "#fbbf24", fontSize: 10, fontWeight: 700 }} />
-                                                <Line type="monotone" dataKey="total" stroke="#f97316" strokeWidth={2.5} dot={{ fill: "#f97316", strokeWidth: 0, r: 4 }} activeDot={{ r: 6, fill: "#fbbf24", strokeWidth: 0 }} />
+                                                <Line type="monotone" dataKey="total" stroke="#f97316" strokeWidth={2.5} dot={{ fill: "#f97316", strokeWidth: 0, r: 4 }} activeDot={dailyTrendActive ? { r: 6, fill: "#fbbf24", strokeWidth: 0 } : false} />
                                             </LineChart>
                                         </ResponsiveContainer>
                                     </div>
@@ -356,10 +733,16 @@ export default function Dashboard({
                                 <div className="charts-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))", gap: 16 }}>
                                     <div style={{ ...S.card, gridColumn: "1/-1" }}>
                                         <h4 style={{ margin: "0 0 20px", fontWeight: 800, fontSize: 15 }}>📈 Daily Spending — {MONTHS[viewMonth]} {viewYear}</h4>
-                                        {dailyStats.length === 0
+                                        {expenses.length === 0
                                             ? <p style={{ color: "rgba(240,236,228,0.2)", textAlign: "center", padding: "40px 0" }}>No expenses recorded</p>
                                             : <ResponsiveContainer width="100%" height={180}>
-                                                <AreaChart data={dailyStats} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                                                <AreaChart
+                                                    data={dailyStats}
+                                                    margin={{ top: 0, right: 0, left: -20, bottom: 0 }}
+                                                    onMouseEnter={() => setDailySpendingActive(true)}
+                                                    onMouseLeave={() => setDailySpendingActive(false)}
+                                                    onClick={(e) => { e.stopPropagation(); setDailySpendingActive(true); }}
+                                                >
                                                     <defs>
                                                         <linearGradient id="ag2" x1="0" y1="0" x2="0" y2="1">
                                                             <stop offset="5%" stopColor={isPastMonth ? "#60a5fa" : "#f97316"} stopOpacity={0.3} />
@@ -368,8 +751,8 @@ export default function Dashboard({
                                                     </defs>
                                                     <XAxis dataKey="day" tick={{ fill: "rgba(240,236,228,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} />
                                                     <YAxis tick={{ fill: "rgba(240,236,228,0.2)", fontSize: 10 }} axisLine={false} tickLine={false} />
-                                                    <Tooltip content={<CustomTooltip />} />
-                                                    <Area type="monotone" dataKey="amount" stroke={isPastMonth ? "#60a5fa" : "#f97316"} strokeWidth={2} fill="url(#ag2)" dot={{ fill: isPastMonth ? "#60a5fa" : "#f97316", strokeWidth: 0, r: 3 }} />
+                                                    <Tooltip active={dailySpendingActive ? undefined : false} cursor={false} content={<CustomTooltip />} />
+                                                    <Area type="monotone" dataKey="amount" stroke={isPastMonth ? "#60a5fa" : "#f97316"} strokeWidth={2} fill="url(#ag2)" dot={{ fill: isPastMonth ? "#60a5fa" : "#f97316", strokeWidth: 0, r: 3 }} activeDot={dailySpendingActive ? undefined : false} />
                                                 </AreaChart>
                                             </ResponsiveContainer>
                                         }
@@ -378,7 +761,7 @@ export default function Dashboard({
                                     <div style={S.card}>
                                         <h4 style={{ margin: "0 0 20px", fontWeight: 800, fontSize: 15 }}>📅 Spending by Day</h4>
                                         {(() => {
-                                            const dayColors = ["#f97316", "#fbbf24", "#06b6d4", "#8b5cf6", "#10b981", "#ec4899", "#3b82f6"];
+                                            const PALETTE = ['#ec4899', '#10b981', '#f97316', '#6366f1', '#f59e0b', '#3b82f6', '#a855f7'];
                                             const dayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
                                             const byDay = {};
                                             expenses.forEach(exp => {
@@ -386,16 +769,20 @@ export default function Dashboard({
                                                 const dayIdx = d.getDay();
                                                 byDay[dayIdx] = (byDay[dayIdx] || 0) + exp.amount;
                                             });
-                                            const dayPieData = Object.entries(byDay)
-                                                .map(([idx, val]) => ({ name: dayLabels[idx], value: val, color: dayColors[idx] }))
-                                                .sort((a, b) => dayLabels.indexOf(a.name) - dayLabels.indexOf(b.name));
-                                            const dayTotal = dayPieData.reduce((s, d) => s + d.value, 0);
-                                            if (dayPieData.length === 0) return <p style={{ color: "rgba(240,236,228,0.2)", textAlign: "center", padding: "40px 0" }}>No data yet</p>;
+                                            const donutData = Object.entries(byDay)
+                                                .filter(([, val]) => val > 0)
+                                                .map(([idx, val], i) => ({
+                                                    label: dayLabels[parseInt(idx)],
+                                                    value: val,
+                                                    color: PALETTE[i % PALETTE.length]
+                                                }));
+                                            const dayTotal = donutData.reduce((s, d) => s + d.value, 0);
+                                            if (donutData.length === 0) return <p style={{ color: "rgba(240,236,228,0.2)", textAlign: "center", padding: "40px 0" }}>No data yet</p>;
                                             return (
                                                 <ResponsiveContainer width="100%" height={220}>
                                                     <PieChart>
-                                                        <Pie data={dayPieData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={dayPieData.length > 1 ? 3 : 0} dataKey="value">
-                                                            {dayPieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                                                        <Pie data={donutData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={donutData.length > 1 ? 3 : 0} dataKey="value" nameKey="label">
+                                                            {donutData.map((e, i) => <Cell key={i} fill={e.color} />)}
                                                         </Pie>
                                                         <Tooltip formatter={(v) => [`₹${v.toLocaleString()} (${dayTotal > 0 ? ((v / dayTotal) * 100).toFixed(1) : 0}%)`, "Spent"]} contentStyle={{ background: "#12121a", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, fontFamily: "inherit" }} itemStyle={{ color: "#fbbf24", fontWeight: 700 }} labelStyle={{ color: "#f0ece4" }} />
                                                         <Legend wrapperStyle={{ color: "rgba(240,236,228,0.5)", fontSize: 12 }} />
@@ -408,12 +795,24 @@ export default function Dashboard({
                                     <div style={S.card}>
                                         <h4 style={{ margin: "0 0 20px", fontWeight: 800, fontSize: 15 }}>📊 Category Breakdown</h4>
                                         <ResponsiveContainer width="100%" height={220}>
-                                            <BarChart data={catKeys.map(c => ({ name: c, spent: catStats[c]?.total || 0 }))} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                                            <BarChart
+                                                data={categoryBreakdownData}
+                                                margin={{ top: 0, right: 0, left: -20, bottom: 0 }}
+                                                onMouseEnter={() => setCategoryBreakdownActive(true)}
+                                                onMouseLeave={() => setCategoryBreakdownActive(false)}
+                                                onClick={(e) => { e.stopPropagation(); setCategoryBreakdownActive(true); }}
+                                            >
                                                 <XAxis dataKey="name" tick={{ fill: "rgba(240,236,228,0.4)", fontSize: 11 }} axisLine={false} tickLine={false} />
                                                 <YAxis tick={{ fill: "rgba(240,236,228,0.2)", fontSize: 10 }} axisLine={false} tickLine={false} />
-                                                <Tooltip formatter={v => `₹${v.toLocaleString()}`} contentStyle={{ background: "#12121a", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, fontFamily: "inherit" }} itemStyle={{ color: "#fbbf24", fontWeight: 700 }} labelStyle={{ color: "#f0ece4" }} />
-                                                <Bar dataKey="spent" radius={[6, 6, 0, 0]}>
-                                                    {catKeys.map((c, i) => <Cell key={i} fill={cats[c]?.color || "#f97316"} />)}
+                                                <Tooltip active={categoryBreakdownActive ? undefined : false} cursor={false} formatter={v => `₹${v.toLocaleString()}`} contentStyle={{ background: "#12121a", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, fontFamily: "inherit" }} itemStyle={{ color: "#fbbf24", fontWeight: 700 }} labelStyle={{ color: "#f0ece4" }} />
+                                                <Bar
+                                                    dataKey="spent"
+                                                    shape={<CustomBar active={false} maxValue={categoryBreakdownMaxValue} />}
+                                                    activeBar={<CustomBar active={categoryBreakdownActive} maxValue={categoryBreakdownMaxValue} />}
+                                                >
+                                                    {categoryBreakdownData.map((entry, index) => (
+                                                        <Cell key={`cell-${index}`} fill={cats[entry.name]?.color || "#f97316"} />
+                                                    ))}
                                                 </Bar>
                                             </BarChart>
                                         </ResponsiveContainer>
@@ -432,10 +831,13 @@ export default function Dashboard({
                                                         return { name: `${MONTHS[parseInt(km) - 1].slice(0, 3)} ${ky}`, Spent: spent, Budget: bud };
                                                     })}
                                                     margin={{ top: 0, right: 0, left: -20, bottom: 0 }}
+                                                    onMouseEnter={() => setMomActive(true)}
+                                                    onMouseLeave={() => setMomActive(false)}
+                                                    onClick={(e) => { e.stopPropagation(); setMomActive(true); }}
                                                 >
                                                     <XAxis dataKey="name" tick={{ fill: "rgba(240,236,228,0.4)", fontSize: 11 }} axisLine={false} tickLine={false} />
                                                     <YAxis tick={{ fill: "rgba(240,236,228,0.2)", fontSize: 10 }} axisLine={false} tickLine={false} />
-                                                    <Tooltip formatter={v => `₹${v.toLocaleString()}`} contentStyle={{ background: "#12121a", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, fontFamily: "inherit" }} itemStyle={{ color: "#fbbf24", fontWeight: 700 }} labelStyle={{ color: "#f0ece4" }} />
+                                                    <Tooltip active={momActive ? undefined : false} formatter={v => `₹${v.toLocaleString()}`} contentStyle={{ background: "#12121a", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, fontFamily: "inherit" }} itemStyle={{ color: "#fbbf24", fontWeight: 700 }} labelStyle={{ color: "#f0ece4" }} />
                                                     <Legend wrapperStyle={{ color: "rgba(240,236,228,0.5)", fontSize: 12 }} />
                                                     <Bar dataKey="Budget" fill="rgba(255,255,255,0.1)" radius={[4, 4, 0, 0]} />
                                                     <Bar dataKey="Spent" fill="#f97316" radius={[4, 4, 0, 0]} />

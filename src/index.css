@@ -72,11 +72,6 @@ textarea {
     padding: 12px 16px !important;
     gap: 10px !important;
   }
-
-  .header-actions {
-    flex-wrap: wrap !important;
-    gap: 6px !important;
-  }
 }
 
 /* Mobile: more aggressive stacking, smaller text/padding */
@@ -107,13 +102,6 @@ textarea {
 
   .header-brand {
     gap: 6px !important;
-  }
-
-  .header-actions {
-    flex-wrap: wrap !important;
-    gap: 4px !important;
-    width: 100% !important;
-    justify-content: flex-start !important;
   }
 
   .hero-cards-grid {

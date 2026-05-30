@@ -10,6 +10,13 @@ import {
     deleteExpenseById,
     upsertCategories,
     saveAllNotes,
+    createRecurringExpense,
+    updateRecurringExpense,
+    deleteRecurringExpense,
+    generateRecurringExpensesForMonth,
+    createSavingsGoal,
+    addSavingsContribution,
+    deleteSavingsGoal,
 } from "../utils/firebaseStorage";
 
 /**
@@ -90,9 +97,11 @@ export function useExpenseManager() {
                 const base = DEFAULT_CATS[expense.category]
                     ? { ...DEFAULT_CATS[expense.category] }
                     : { icon: "💳", color: "#f97316", subs: [] };
-                const existing = currentCats[expense.category] || { ...base };
+                const existing = currentCats[expense.category]
+                    ? { ...currentCats[expense.category], subs: [...(currentCats[expense.category].subs || [])] }
+                    : { ...base, subs: [...(base.subs || [])] };
                 if (!existing.subs.includes(expense.subCategory)) {
-                    existing.subs = [...existing.subs, expense.subCategory];
+                    existing.subs.push(expense.subCategory);
                 }
                 const updatedCats = { ...currentCats, [expense.category]: existing };
                 await upsertCategories(user.id, updatedCats);
@@ -136,6 +145,94 @@ export function useExpenseManager() {
         }
     };
 
+    const ensureRecurringForMonth = async (month, year) => {
+        try {
+            const rules = allUserData?.recurringExpenses || [];
+            const inserted = await generateRecurringExpensesForMonth(user.id, rules, month, year);
+            if (inserted > 0) {
+                await loadData(user.id);
+            }
+        } catch (err) {
+            console.error("Failed to generate recurring expenses:", err);
+        }
+    };
+
+    const saveRecurringRule = async (rule) => {
+        try {
+            if (rule.id) {
+                await updateRecurringExpense(user.id, rule.id, rule);
+            } else {
+                await createRecurringExpense(user.id, rule);
+            }
+            await loadData(user.id);
+        } catch (err) {
+            console.error("Failed to save recurring rule:", err);
+            alert("Failed to save recurring rule. Please try again.");
+        }
+    };
+
+    const removeRecurringRule = async (recurringId) => {
+        try {
+            await deleteRecurringExpense(user.id, recurringId);
+            await loadData(user.id);
+        } catch (err) {
+            console.error("Failed to delete recurring rule:", err);
+            alert("Failed to delete recurring rule. Please try again.");
+        }
+    };
+
+    const saveSavingsGoal = async (goal) => {
+        try {
+            await createSavingsGoal(user.id, goal);
+            await loadData(user.id);
+        } catch (err) {
+            console.error("Failed to create savings goal:", err);
+            alert("Failed to create savings goal. Please try again.");
+        }
+    };
+
+    const contributeToGoal = async (goalId, amount, currentSavedAmount, goalName) => {
+        try {
+            await addSavingsContribution(user.id, goalId, amount, currentSavedAmount);
+
+            // Log the contribution as an expense under "Savings" category
+            const key = monthKey(CURRENT_MONTH, CURRENT_YEAR);
+            const currentCats = allUserData?.customCategories || {};
+            const existing = currentCats["Savings"]
+                ? { ...currentCats["Savings"], subs: [...(currentCats["Savings"].subs || [])] }
+                : { icon: "🎯", color: "#fbbf24", subs: [] };
+            if (!existing.subs.includes(goalName)) {
+                existing.subs.push(goalName);
+                const updatedCats = { ...currentCats, "Savings": existing };
+                await upsertCategories(user.id, updatedCats);
+            }
+
+            const expense = {
+                amount: Number(amount),
+                category: "Savings",
+                subCategory: goalName,
+                note: `Savings Goal: ${goalName}`,
+                date: new Date().toISOString().split("T")[0],
+            };
+
+            await insertExpense(user.id, expense, key);
+            await loadData(user.id);
+        } catch (err) {
+            console.error("Failed to add savings contribution:", err);
+            alert("Failed to add contribution. Please try again.");
+        }
+    };
+
+    const removeSavingsGoal = async (goalId) => {
+        try {
+            await deleteSavingsGoal(user.id, goalId);
+            await loadData(user.id);
+        } catch (err) {
+            console.error("Failed to delete savings goal:", err);
+            alert("Failed to delete savings goal. Please try again.");
+        }
+    };
+
     const currentKey = monthKey(CURRENT_MONTH, CURRENT_YEAR);
     const currentBudget = allUserData?.months?.[currentKey]?.budget || null;
 
@@ -153,5 +250,11 @@ export function useExpenseManager() {
         deleteExpense,
         saveCategories,
         saveNotes,
+        ensureRecurringForMonth,
+        saveRecurringRule,
+        removeRecurringRule,
+        saveSavingsGoal,
+        contributeToGoal,
+        removeSavingsGoal,
     };
 }

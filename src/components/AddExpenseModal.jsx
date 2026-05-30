@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { S } from "../styles/shared.jsx";
 import { DEFAULT_CATS } from "../utils/constants";
 
-export default function AddExpenseModal({ budget, customCategories, onAdd, onClose }) {
+export default function AddExpenseModal({ customCategories, onAdd, onClose }) {
     const cats = customCategories
         ? { ...DEFAULT_CATS, ...customCategories }
         : DEFAULT_CATS;
@@ -10,12 +10,7 @@ export default function AddExpenseModal({ budget, customCategories, onAdd, onClo
 
     const [amt, setAmt] = useState("");
     const [cat, setCat] = useState(catKeys[0]);
-    const subs = [
-        ...(cats[cat]?.subs || []),
-        ...(DEFAULT_CATS[cat]?.subs || []).filter(
-            (s) => !(cats[cat]?.subs || []).includes(s)
-        ),
-    ].filter((v, i, a) => a.indexOf(v) === i);
+    const subs = cats[cat]?.subs || [];
     const [sub, setSub] = useState(subs[0] || "");
     const [note, setNote] = useState("");
     const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
@@ -58,7 +53,7 @@ export default function AddExpenseModal({ budget, customCategories, onAdd, onClo
                 <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ ...S.input, marginBottom: 20 }} />
 
                 <label style={S.label}>Main Category</label>
-                <select value={cat} onChange={e => { setCat(e.target.value); const newSubs = [...(cats[e.target.value]?.subs || []), ...(DEFAULT_CATS[e.target.value]?.subs || []).filter(s => !(cats[e.target.value]?.subs || []).includes(s))].filter((v, i, a) => a.indexOf(v) === i); setSub(newSubs[0] || ""); setAddingNew(false); }} style={{ ...S.select, marginBottom: 20 }}>
+                <select value={cat} onChange={e => { setCat(e.target.value); const newSubs = cats[e.target.value]?.subs || []; setSub(newSubs[0] || ""); setAddingNew(false); }} style={{ ...S.select, marginBottom: 20 }}>
                     {catKeys.map(c => (
                         <option key={c} value={c}>{cats[c]?.icon} {c}</option>
                     ))}
