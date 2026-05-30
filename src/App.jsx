@@ -10,6 +10,8 @@ export default function App() {
     user, screen, setScreen, allUserData, currentBudget, loading,
     login, logout, saveBudget, addExpense, deleteExpense,
     saveCategories, saveNotes,
+    ensureRecurringForMonth, saveRecurringRule, removeRecurringRule,
+    saveSavingsGoal, contributeToGoal, removeSavingsGoal,
   } = useExpenseManager();
 
   // Show loading spinner while checking session
@@ -49,6 +51,12 @@ export default function App() {
       onSetupMonthBudget={() => setScreen("setup")}
       onSaveCategories={saveCategories}
       onSaveNotes={saveNotes}
+      onEnsureRecurringForMonth={ensureRecurringForMonth}
+      onSaveRecurringRule={saveRecurringRule}
+      onDeleteRecurringRule={removeRecurringRule}
+      onSaveSavingsGoal={saveSavingsGoal}
+      onContributeToGoal={contributeToGoal}
+      onDeleteSavingsGoal={removeSavingsGoal}
     />
   );
 
