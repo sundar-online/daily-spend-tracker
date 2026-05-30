@@ -8,6 +8,19 @@ export default function NotesPanel({ notes, onSaveNotes, savingsGoals, onSaveSav
     const [showGoalModal, setShowGoalModal] = useState(false);
     const [goalForm, setGoalForm] = useState({ name: "", emoji: "🎯", targetAmount: "", deadline: "" });
     const [contributions, setContributions] = useState({});
+    const [isCollapsed, setIsCollapsed] = useState(() => {
+        const stored = localStorage.getItem("spendwise_notes_collapsed");
+        if (stored !== null) return stored === "true";
+        return typeof window !== "undefined" && window.innerWidth <= 900;
+    });
+
+    const toggleCollapse = () => {
+        setIsCollapsed((prev) => {
+            const next = !prev;
+            localStorage.setItem("spendwise_notes_collapsed", String(next));
+            return next;
+        });
+    };
 
     const addNote = () => {
         if (!noteText.trim()) return;
@@ -60,159 +73,207 @@ export default function NotesPanel({ notes, onSaveNotes, savingsGoals, onSaveSav
                 flexShrink: 0,
                 position: "sticky",
                 top: 80,
-                maxHeight: "calc(100vh - 100px)",
-                overflowY: "auto",
+                maxHeight: isCollapsed ? "none" : "calc(100vh - 100px)",
+                overflowY: isCollapsed ? "hidden" : "auto",
             }}
         >
-            <div style={{ ...S.card, marginBottom: 0 }}>
-                <h4 style={{ margin: "0 0 16px", fontWeight: 800, fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
-                    📝 Notes & Reminders
+            <div style={{ ...S.card, marginBottom: 0, paddingBottom: isCollapsed ? 12 : 24, transition: "padding 0.3s ease" }}>
+                <h4
+                    onClick={toggleCollapse}
+                    style={{
+                        margin: 0,
+                        fontWeight: 800,
+                        fontSize: 15,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        cursor: "pointer",
+                        userSelect: "none",
+                        width: "100%",
+                    }}
+                >
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        📝 Notes & Reminders
+                    </span>
+                    <span
+                        style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: 24,
+                            height: 24,
+                            borderRadius: 6,
+                            background: "rgba(255, 255, 255, 0.05)",
+                            transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s",
+                            transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+                            fontSize: 10,
+                            color: "rgba(255, 255, 255, 0.6)",
+                        }}
+                    >
+                        ▼
+                    </span>
                 </h4>
 
-                {/* Add Note */}
-                <div style={{ marginBottom: 16 }}>
-                    <input
-                        type="text"
-                        placeholder="e.g. Lent ₹100 to Ravi…"
-                        value={noteText}
-                        onChange={(e) => setNoteText(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") addNote(); }}
-                        style={{ ...S.input, fontSize: 12, padding: "8px 12px", border: "1px solid rgba(255,255,255,0.08)", marginBottom: 8 }}
-                    />
-                    <div style={{ display: "flex", gap: 6 }}>
+                <div
+                    style={{
+                        maxHeight: isCollapsed ? "0px" : "2000px",
+                        opacity: isCollapsed ? 0 : 1,
+                        overflow: "hidden",
+                        transition: isCollapsed
+                            ? "max-height 0.3s cubic-bezier(0, 0, 0.2, 1), opacity 0.2s ease, margin-top 0.3s ease"
+                            : "max-height 0.5s cubic-bezier(0.4, 0, 1, 1), opacity 0.3s ease, margin-top 0.5s ease",
+                        marginTop: isCollapsed ? 0 : 16,
+                    }}
+                >
+                    {/* Add Note */}
+                    <div style={{ marginBottom: 16 }}>
                         <input
-                            type="number"
-                            placeholder="₹ Amount"
-                            value={noteAmount}
-                            onChange={(e) => setNoteAmount(e.target.value)}
+                            type="text"
+                            placeholder="e.g. Lent ₹100 to Ravi…"
+                            value={noteText}
+                            onChange={(e) => setNoteText(e.target.value)}
                             onKeyDown={(e) => { if (e.key === "Enter") addNote(); }}
-                            style={{ ...S.input, flex: 1, fontSize: 12, padding: "8px 12px", border: "1px solid rgba(255,255,255,0.08)" }}
+                            style={{ ...S.input, fontSize: 12, padding: "8px 12px", border: "1px solid rgba(255,255,255,0.08)", marginBottom: 8 }}
                         />
-                        <button
-                            onClick={addNote}
-                            style={{ ...S.btn, border: "1px solid transparent", background: "linear-gradient(135deg,#f97316,#fbbf24)", color: "#0d0d0f", padding: "8px 16px", fontSize: 12, fontWeight: 800, whiteSpace: "nowrap" }}
-                        >
-                            + Add
-                        </button>
+                        <div style={{ display: "flex", gap: 6 }}>
+                            <input
+                                type="number"
+                                placeholder="₹ Amount"
+                                value={noteAmount}
+                                onChange={(e) => setNoteAmount(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter") addNote(); }}
+                                style={{ ...S.input, flex: 1, fontSize: 12, padding: "8px 12px", border: "1px solid rgba(255,255,255,0.08)" }}
+                            />
+                            <button
+                                onClick={addNote}
+                                style={{ ...S.btn, border: "1px solid transparent", background: "linear-gradient(135deg,#f97316,#fbbf24)", color: "#0d0d0f", padding: "8px 16px", fontSize: 12, fontWeight: 800, whiteSpace: "nowrap" }}
+                            >
+                                + Add
+                            </button>
+                        </div>
                     </div>
-                </div>
 
-                {/* Notes List */}
-                {notes.length === 0 ? (
-                    <div style={{ color: "rgba(240,236,228,0.2)", fontSize: 12, textAlign: "center", padding: "20px 0" }}>
-                        No notes yet. Add a reminder above!
-                    </div>
-                ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {[...notes]
-                            .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))
-                            .map((note) => (
-                                <div
-                                    key={note.id}
-                                    style={{
-                                        padding: "10px 12px",
-                                        borderRadius: 12,
-                                        background: note.pinned ? "rgba(249,115,22,0.08)" : "rgba(255,255,255,0.03)",
-                                        border: `1px solid ${note.pinned ? "rgba(249,115,22,0.3)" : "rgba(255,255,255,0.06)"}`,
-                                        transition: "all .2s",
-                                    }}
-                                >
-                                    <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                                        <button
-                                            onClick={() => toggleDone(note.id)}
-                                            style={{
-                                                background: "none",
-                                                border: `2px solid ${note.done ? "#10b981" : "rgba(255,255,255,0.2)"}`,
-                                                width: 18, height: 18, borderRadius: 5, cursor: "pointer",
-                                                flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center",
-                                                justifyContent: "center", fontSize: 10, color: "#10b981", padding: 0,
-                                            }}
-                                        >
-                                            {note.done ? "✓" : ""}
-                                        </button>
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{
-                                                fontSize: 13, fontWeight: 600,
-                                                color: note.done ? "rgba(240,236,228,0.3)" : "rgba(240,236,228,0.85)",
-                                                textDecoration: note.done ? "line-through" : "none", lineHeight: 1.3,
-                                            }}>
-                                                {note.text}
-                                            </div>
-                                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-                                                {note.amount && (
-                                                    <span style={{ fontSize: 12, fontWeight: 800, fontFamily: "'JetBrains Mono',monospace", color: note.done ? "rgba(16,185,129,0.4)" : "#10b981" }}>
-                                                        ₹{note.amount.toLocaleString()}
-                                                    </span>
-                                                )}
-                                                <span style={{ fontSize: 10, color: "rgba(240,236,228,0.2)" }}>{note.createdAt}</span>
-                                                {note.pinned && <span style={{ fontSize: 9, fontWeight: 800, color: "#f97316", letterSpacing: 0.5 }}>📌 PINNED</span>}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div style={{ display: "flex", gap: 4, marginTop: 8, justifyContent: "flex-end" }}>
-                                        <button onClick={() => togglePin(note.id)} style={{ background: note.pinned ? "rgba(249,115,22,0.15)" : "rgba(255,255,255,0.05)", border: "none", color: note.pinned ? "#f97316" : "rgba(240,236,228,0.4)", padding: "4px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontFamily: "inherit", fontWeight: 600 }}>
-                                            {note.pinned ? "Unpin" : "📌 Pin"}
-                                        </button>
-                                        <button onClick={() => deleteNote(note.id)} style={{ background: "rgba(248,113,113,0.1)", border: "none", color: "#f87171", padding: "4px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontFamily: "inherit", fontWeight: 600 }}>
-                                            🗑️
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                    </div>
-                )}
-
-                <div style={{ marginTop: 24, paddingTop: 18, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                    <h4 style={{ margin: "0 0 12px", fontWeight: 800, fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
-                        🎯 Goals
-                    </h4>
-
-                    {(savingsGoals || []).length === 0 ? (
-                        <div style={{ color: "rgba(240,236,228,0.22)", fontSize: 12, textAlign: "center", padding: "14px 0" }}>
-                            No goals yet. Create your first one!
+                    {/* Notes List */}
+                    {notes.length === 0 ? (
+                        <div style={{ color: "rgba(240,236,228,0.2)", fontSize: 12, textAlign: "center", padding: "20px 0" }}>
+                            No notes yet. Add a reminder above!
                         </div>
                     ) : (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 10 }}>
-                            {savingsGoals.map((goal) => {
-                                const pct = goal.targetAmount > 0 ? Math.min(100, (goal.savedAmount / goal.targetAmount) * 100) : 0;
-                                return (
-                                    <div key={goal.id} style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
-                                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-                                            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                                                <span style={{ fontSize: 18 }}>{goal.emoji || "🎯"}</span>
-                                                <div style={{ minWidth: 0 }}>
-                                                    <div style={{ fontWeight: 700, fontSize: 13 }}>{goal.name}</div>
-                                                    {goal.deadline && <div style={{ fontSize: 10, color: "rgba(240,236,228,0.35)" }}>Due {goal.deadline}</div>}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            {[...notes]
+                                .sort((a, b) => {
+                                    if (a.done !== b.done) return a.done ? 1 : -1;
+                                    if (a.pinned !== b.pinned) return b.pinned ? 1 : -1;
+                                    return b.id - a.id;
+                                })
+                                .map((note) => (
+                                    <div
+                                        key={note.id}
+                                        style={{
+                                            padding: "10px 12px",
+                                            borderRadius: 12,
+                                            background: note.pinned ? "rgba(249,115,22,0.08)" : "rgba(255,255,255,0.03)",
+                                            border: `1px solid ${note.pinned ? "rgba(249,115,22,0.3)" : "rgba(255,255,255,0.06)"}`,
+                                            transition: "all .2s",
+                                        }}
+                                    >
+                                        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                                            <button
+                                                onClick={() => toggleDone(note.id)}
+                                                style={{
+                                                    background: "none",
+                                                    border: `2px solid ${note.done ? "#10b981" : "rgba(255,255,255,0.2)"}`,
+                                                    width: 18, height: 18, borderRadius: 5, cursor: "pointer",
+                                                    flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center",
+                                                    justifyContent: "center", fontSize: 10, color: "#10b981", padding: 0,
+                                                }}
+                                            >
+                                                {note.done ? "✓" : ""}
+                                            </button>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{
+                                                    fontSize: 13, fontWeight: 600,
+                                                    color: note.done ? "rgba(240,236,228,0.3)" : "rgba(240,236,228,0.85)",
+                                                    textDecoration: note.done ? "line-through" : "none", lineHeight: 1.3,
+                                                }}>
+                                                    {note.text}
+                                                </div>
+                                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                                                    {note.amount && (
+                                                        <span style={{ fontSize: 12, fontWeight: 800, fontFamily: "'JetBrains Mono',monospace", color: note.done ? "rgba(16,185,129,0.4)" : "#10b981" }}>
+                                                            ₹{note.amount.toLocaleString()}
+                                                        </span>
+                                                    )}
+                                                    <span style={{ fontSize: 10, color: "rgba(240,236,228,0.2)" }}>{note.createdAt}</span>
+                                                    {note.pinned && <span style={{ fontSize: 9, fontWeight: 800, color: "#f97316", letterSpacing: 0.5 }}>📌 PINNED</span>}
                                                 </div>
                                             </div>
-                                            <button onClick={() => onDeleteSavingsGoal(goal.id)} style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.25)", color: "#f87171", width: 28, height: 28, borderRadius: 8, cursor: "pointer" }}>🗑️</button>
                                         </div>
-                                        <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: 999, height: 8, overflow: "hidden", marginBottom: 7 }}>
-                                            <div style={{ width: `${pct}%`, height: "100%", background: pct >= 80 ? "linear-gradient(90deg,#f59e0b,#10b981)" : "linear-gradient(90deg,#f97316,#fbbf24)", transition: "width .4s ease" }} />
-                                        </div>
-                                        <div style={{ fontSize: 11, color: "rgba(240,236,228,0.55)", marginBottom: 8 }}>
-                                            ₹{goal.savedAmount.toLocaleString()} of ₹{goal.targetAmount.toLocaleString()} saved
-                                        </div>
-                                        <div style={{ display: "flex", gap: 6 }}>
-                                            <input
-                                                type="number"
-                                                placeholder="Add ₹"
-                                                value={contributions[goal.id] || ""}
-                                                onChange={(e) => setContributions((prev) => ({ ...prev, [goal.id]: e.target.value }))}
-                                                onKeyDown={(e) => { if (e.key === "Enter") addContribution(goal); }}
-                                                style={{ ...S.input, flex: 1, fontSize: 12, padding: "8px 12px", border: "1px solid rgba(255,255,255,0.08)", marginBottom: 0 }}
-                                            />
-                                            <button onClick={() => addContribution(goal)} style={{ ...S.btn, border: "1px solid transparent", padding: "8px 16px", fontSize: 12, fontWeight: 800, background: "linear-gradient(135deg,#f97316,#fbbf24)", color: "#0d0d0f", whiteSpace: "nowrap" }}>+ Add ₹</button>
+                                        <div style={{ display: "flex", gap: 4, marginTop: 8, justifyContent: "flex-end" }}>
+                                            <button onClick={() => togglePin(note.id)} style={{ background: note.pinned ? "rgba(249,115,22,0.15)" : "rgba(255,255,255,0.05)", border: "none", color: note.pinned ? "#f97316" : "rgba(240,236,228,0.4)", padding: "4px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontFamily: "inherit", fontWeight: 600 }}>
+                                                {note.pinned ? "Unpin" : "📌 Pin"}
+                                            </button>
+                                            <button onClick={() => deleteNote(note.id)} style={{ background: "rgba(248,113,113,0.1)", border: "none", color: "#f87171", padding: "4px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontFamily: "inherit", fontWeight: 600 }}>
+                                                🗑️
+                                            </button>
                                         </div>
                                     </div>
-                                );
-                            })}
+                                ))}
                         </div>
                     )}
 
-                    <button onClick={() => setShowGoalModal(true)} style={{ width: "100%", background: "transparent", border: "1px solid rgba(249,115,22,0.4)", color: "#f97316", padding: "9px 12px", borderRadius: 10, fontFamily: "inherit", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
-                        + New Goal
-                    </button>
+                    <div style={{ marginTop: 24, paddingTop: 18, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                        <h4 style={{ margin: "0 0 12px", fontWeight: 800, fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
+                            🎯 Goals
+                        </h4>
+
+                        {(savingsGoals || []).length === 0 ? (
+                            <div style={{ color: "rgba(240,236,228,0.22)", fontSize: 12, textAlign: "center", padding: "14px 0" }}>
+                                No goals yet. Create your first one!
+                            </div>
+                        ) : (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 10 }}>
+                                {savingsGoals.map((goal) => {
+                                    const pct = goal.targetAmount > 0 ? Math.min(100, (goal.savedAmount / goal.targetAmount) * 100) : 0;
+                                    return (
+                                        <div key={goal.id} style={{ padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                                                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                                                    <span style={{ fontSize: 18 }}>{goal.emoji || "🎯"}</span>
+                                                    <div style={{ minWidth: 0 }}>
+                                                        <div style={{ fontWeight: 700, fontSize: 13 }}>{goal.name}</div>
+                                                        {goal.deadline && <div style={{ fontSize: 10, color: "rgba(240,236,228,0.35)" }}>Due {goal.deadline}</div>}
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => onDeleteSavingsGoal(goal.id)} style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.25)", color: "#f87171", width: 28, height: 28, borderRadius: 8, cursor: "pointer" }}>🗑️</button>
+                                            </div>
+                                            <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: 999, height: 8, overflow: "hidden", marginBottom: 7 }}>
+                                                <div style={{ width: `${pct}%`, height: "100%", background: pct >= 80 ? "linear-gradient(90deg,#f59e0b,#10b981)" : "linear-gradient(90deg,#f97316,#fbbf24)", transition: "width .4s ease" }} />
+                                            </div>
+                                            <div style={{ fontSize: 11, color: "rgba(240,236,228,0.55)", marginBottom: 8 }}>
+                                                ₹{goal.savedAmount.toLocaleString()} of ₹{goal.targetAmount.toLocaleString()} saved
+                                            </div>
+                                            <div style={{ display: "flex", gap: 6 }}>
+                                                <input
+                                                    type="number"
+                                                    placeholder="Add ₹"
+                                                    value={contributions[goal.id] || ""}
+                                                    onChange={(e) => setContributions((prev) => ({ ...prev, [goal.id]: e.target.value }))}
+                                                    onKeyDown={(e) => { if (e.key === "Enter") addContribution(goal); }}
+                                                    style={{ ...S.input, flex: 1, fontSize: 12, padding: "8px 12px", border: "1px solid rgba(255,255,255,0.08)", marginBottom: 0 }}
+                                                />
+                                                <button onClick={() => addContribution(goal)} style={{ ...S.btn, border: "1px solid transparent", padding: "8px 16px", fontSize: 12, fontWeight: 800, background: "linear-gradient(135deg,#f97316,#fbbf24)", color: "#0d0d0f", whiteSpace: "nowrap" }}>+ Add ₹</button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        <button onClick={() => setShowGoalModal(true)} style={{ width: "100%", background: "transparent", border: "1px solid rgba(249,115,22,0.4)", color: "#f97316", padding: "9px 12px", borderRadius: 10, fontFamily: "inherit", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                            + New Goal
+                        </button>
+                    </div>
                 </div>
             </div>
 

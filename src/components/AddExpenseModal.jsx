@@ -2,7 +2,7 @@ import { useState } from "react";
 import { S } from "../styles/shared.jsx";
 import { DEFAULT_CATS } from "../utils/constants";
 
-export default function AddExpenseModal({ customCategories, onAdd, onClose }) {
+export default function AddExpenseModal({ customCategories, onAdd, onClose, showToast }) {
     const cats = customCategories
         ? { ...DEFAULT_CATS, ...customCategories }
         : DEFAULT_CATS;
@@ -20,9 +20,15 @@ export default function AddExpenseModal({ customCategories, onAdd, onClose }) {
     const catColor = cats[cat]?.color || "#f97316";
 
     const submit = () => {
-        if (!amt || Number(amt) <= 0) return alert("Enter a valid amount.");
+        if (!amt || Number(amt) <= 0) {
+            showToast("Enter a valid amount.", "warning");
+            return;
+        }
         const finalSub = addingNew ? newSub.trim() : sub;
-        if (!finalSub) return alert("Select or enter a sub-category.");
+        if (!finalSub) {
+            showToast("Select or enter a sub-category.", "warning");
+            return;
+        }
         onAdd({
             id: Date.now(),
             amount: Number(amt),

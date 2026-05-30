@@ -2,7 +2,7 @@ import { useState } from "react";
 import { S } from "../styles/shared.jsx";
 import { DEFAULT_CATS, EMOJI_OPTIONS, COLOR_OPTIONS } from "../utils/constants";
 
-export default function CategoryManager({ customCategories, onSave, onClose }) {
+export default function CategoryManager({ customCategories, onSave, onClose, showToast, askConfirm }) {
     const [cats, setCats] = useState(() => {
         const merged = {};
         Object.entries(DEFAULT_CATS).forEach(([k, v]) => {
@@ -46,8 +46,14 @@ export default function CategoryManager({ customCategories, onSave, onClose }) {
 
     const addCategory = () => {
         const name = newName.trim();
-        if (!name) return alert("Enter a category name.");
-        if (Object.keys(cats).find(k => k.toLowerCase() === name.toLowerCase())) return alert("Category already exists.");
+        if (!name) {
+            showToast("Enter a category name.", "warning");
+            return;
+        }
+        if (Object.keys(cats).find(k => k.toLowerCase() === name.toLowerCase())) {
+            showToast("Category already exists.", "warning");
+            return;
+        }
         const subs = newSubs.split(",").map(s => s.trim()).filter(Boolean);
         setCats(prev => ({ ...prev, [name]: { icon: newIcon, color: newColor, subs, isDefault: false } }));
         setNewName(""); setNewIcon("💳"); setNewColor("#f97316"); setNewSubs("");
@@ -55,10 +61,17 @@ export default function CategoryManager({ customCategories, onSave, onClose }) {
     };
 
     const deleteCategory = (name) => {
-        if (cats[name]?.isDefault) return alert("Default categories cannot be deleted.");
-        if (!confirm(`Delete "${name}" category? Existing expenses under this category will still be visible.`)) return;
-        setCats(prev => { const next = { ...prev }; delete next[name]; return next; });
-        if (editing === name) setEditing(null);
+        if (cats[name]?.isDefault) {
+            showToast("Default categories cannot be deleted.", "warning");
+            return;
+        }
+        askConfirm(
+            `Delete "${name}" category? Existing expenses under this category will still be visible.`,
+            () => {
+                setCats(prev => { const next = { ...prev }; delete next[name]; return next; });
+                if (editing === name) setEditing(null);
+            }
+        );
     };
 
     const handleSave = () => {

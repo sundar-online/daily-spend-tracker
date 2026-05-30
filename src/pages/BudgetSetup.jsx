@@ -1,27 +1,80 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MONTHS, CURRENT_MONTH, CURRENT_YEAR } from "../utils/constants";
 import { S, FontLink } from "../styles/shared.jsx";
+import { monthKey } from "../utils/storage";
 
-export default function BudgetSetup({ existingBudget, targetMonth, targetYear, onSave, onBack }) {
-    const [month, setMonth] = useState(existingBudget?.month ?? targetMonth ?? CURRENT_MONTH);
+export default function BudgetSetup({ allUserData, targetMonth, targetYear, onSave, onBack, showToast, askConfirm }) {
+    const [month, setMonth] = useState(targetMonth ?? CURRENT_MONTH);
     const [year] = useState(targetYear ?? CURRENT_YEAR);
-    const [sources, setSources] = useState(
-        existingBudget?.sources ?? [{ name: "Parents", amount: "" }, { name: "Earnings", amount: "" }]
-    );
+    const [sources, setSources] = useState([]);
     const [newSrc, setNewSrc] = useState("");
+    const [newAmt, setNewAmt] = useState("");
+
+    // Synchronize sources state when month selection changes
+    useEffect(() => {
+        const key = monthKey(month, year);
+        const monthData = allUserData?.months?.[key];
+        const existingSources = monthData?.budget?.sources;
+        if (existingSources && existingSources.length > 0) {
+            setSources(existingSources);
+        } else {
+            // Default setup values
+            setSources([
+                { name: "Parents", amount: "" },
+                { name: "Earnings", amount: "" }
+            ]);
+        }
+    }, [month, year, allUserData]);
 
     const total = sources.reduce((s, x) => s + (Number(x.amount) || 0), 0);
 
+    const handleAddSource = () => {
+        const name = newSrc.trim();
+        const amountStr = newAmt.trim();
+        if (!name) return;
+
+        const amount = amountStr ? Number(amountStr) : 0;
+
+        // Check if it already exists (case-insensitive)
+        const existingIndex = sources.findIndex(s => s.name.toLowerCase() === name.toLowerCase());
+
+        if (existingIndex >= 0) {
+            // Add amount to existing source
+            setSources(p => p.map((s, idx) => {
+                if (idx === existingIndex) {
+                    const currentVal = Number(s.amount) || 0;
+                    return { ...s, amount: String(currentVal + amount) };
+                }
+                return s;
+            }));
+        } else {
+            // Add new source
+            setSources(p => [...p, { name, amount: amountStr }]);
+        }
+
+        setNewSrc("");
+        setNewAmt("");
+    };
+
     const handleSave = () => {
-        if (total <= 0) return alert("Add at least one budget source with an amount.");
-        onSave({ month, year, total, sources: sources.filter(s => Number(s.amount) > 0) });
+        const activeSources = sources
+            .map(s => ({ name: s.name.trim(), amount: Number(s.amount) || 0 }))
+            .filter(s => s.name && s.amount > 0);
+
+        if (activeSources.length === 0) {
+            showToast("Add at least one budget source with an amount.", "warning");
+            return;
+        }
+
+        const calculatedTotal = activeSources.reduce((s, x) => s + x.amount, 0);
+        onSave({ month, year, total: calculatedTotal, sources: activeSources });
     };
 
     return (
         <div style={{ ...S.app, padding: "32px 20px", display: "flex", justifyContent: "center" }}>
             <FontLink />
             <div style={{ position: "fixed", inset: 0, pointerEvents: "none", background: "radial-gradient(ellipse 60% 40% at 30% 20%, rgba(251,191,36,0.08) 0%, transparent 70%)" }} />
-            <div style={{ maxWidth: 520, width: "100%", position: "relative" }}>
+            <div style={{ maxWidth: 580, width: "100%", position: "relative" }}>
                 <div style={{ marginBottom: 28 }}>
                     {onBack && <button onClick={onBack} style={{ ...S.btn, background: "rgba(255,255,255,0.06)", color: "rgba(240,236,228,0.6)", padding: "8px 16px", marginBottom: 16 }}>← Back</button>}
                     <h2 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>💰 Budget Setup</h2>
@@ -48,21 +101,103 @@ export default function BudgetSetup({ existingBudget, targetMonth, targetYear, o
                     </div>
 
                     {sources.map((s, i) => (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: "#f0ece4", marginBottom: 4 }}>{s.name}</div>
-                                <div style={{ position: "relative" }}>
-                                    <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "rgba(240,236,228,0.4)", fontSize: 14, fontWeight: 700 }}>₹</span>
-                                    <input type="number" placeholder="0" value={s.amount} onChange={e => setSources(p => p.map((x, idx) => idx === i ? { ...x, amount: e.target.value } : x))} style={{ ...S.input, paddingLeft: 30 }} />
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                            <div style={{ flex: 1, display: "flex", gap: 10 }}>
+                                <div style={{ flex: 1.2 }}>
+                                    <label style={{ ...S.label, fontSize: 10, marginBottom: 4 }}>Source Name</label>
+                                    <input
+                                        type="text"
+                                        value={s.name}
+                                        onChange={e => setSources(p => p.map((x, idx) => idx === i ? { ...x, name: e.target.value } : x))}
+                                        style={S.input}
+                                    />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ ...S.label, fontSize: 10, marginBottom: 4 }}>Amount</label>
+                                    <div style={{ position: "relative" }}>
+                                        <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "rgba(240,236,228,0.4)", fontSize: 14, fontWeight: 700 }}>₹</span>
+                                        <input
+                                            type="number"
+                                            placeholder="0"
+                                            value={s.amount}
+                                            onChange={e => setSources(p => p.map((x, idx) => idx === i ? { ...x, amount: e.target.value } : x))}
+                                            style={{ ...S.input, paddingLeft: 30 }}
+                                        />
+                                    </div>
                                 </div>
                             </div>
-                            <button onClick={() => setSources(p => p.filter((_, idx) => idx !== i))} style={{ background: "none", border: "none", color: "rgba(248,113,113,0.6)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "4px", marginTop: 16 }}>×</button>
+                            <button
+                                onClick={() => {
+                                    askConfirm(
+                                        `Are you sure you want to delete the income source "${s.name || "Unnamed Source"}"?`,
+                                        () => setSources(p => p.filter((_, idx) => idx !== i))
+                                    );
+                                }}
+                                style={{
+                                    background: "rgba(248,113,113,0.1)",
+                                    border: "1px solid rgba(248,113,113,0.25)",
+                                    color: "#f87171",
+                                    width: 34,
+                                    height: 34,
+                                    borderRadius: 10,
+                                    cursor: "pointer",
+                                    fontSize: 16,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    marginTop: 16,
+                                    transition: "all 0.15s",
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.background = "rgba(248,113,113,0.2)"}
+                                onMouseLeave={e => e.currentTarget.style.background = "rgba(248,113,113,0.1)"}
+                                title="Delete source"
+                            >
+                                🗑️
+                            </button>
                         </div>
                     ))}
 
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                        <input type="text" placeholder="Add source (e.g. Freelance)…" value={newSrc} onChange={e => setNewSrc(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { const nm = newSrc.trim() || "Other"; if (!sources.find(s => s.name.toLowerCase() === nm.toLowerCase())) setSources(p => [...p, { name: nm, amount: "" }]); setNewSrc(""); } }} style={{ ...S.input, flex: 1 }} />
-                        <button onClick={() => { const nm = newSrc.trim() || "Other"; if (!sources.find(s => s.name.toLowerCase() === nm.toLowerCase())) setSources(p => [...p, { name: nm, amount: "" }]); setNewSrc(""); }} style={{ ...S.btn, background: "rgba(249,115,22,0.2)", color: "#f97316", border: "1px solid rgba(249,115,22,0.3)", padding: "12px 18px" }}>+ Add</button>
+                    <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                        <label style={{ ...S.label, fontSize: 11, marginBottom: 8 }}>Add Income Source</label>
+                        <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+                            <div style={{ flex: 1.2 }}>
+                                <input
+                                    type="text"
+                                    placeholder="Add source (e.g. Freelance)…"
+                                    value={newSrc}
+                                    onChange={e => setNewSrc(e.target.value)}
+                                    onKeyDown={e => { if (e.key === "Enter") handleAddSource(); }}
+                                    style={S.input}
+                                />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ position: "relative" }}>
+                                    <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "rgba(240,236,228,0.4)", fontSize: 14, fontWeight: 700 }}>₹</span>
+                                    <input
+                                        type="number"
+                                        placeholder="₹ Amount"
+                                        value={newAmt}
+                                        onChange={e => setNewAmt(e.target.value)}
+                                        onKeyDown={e => { if (e.key === "Enter") handleAddSource(); }}
+                                        style={{ ...S.input, paddingLeft: 30 }}
+                                    />
+                                </div>
+                            </div>
+                            <button
+                                onClick={handleAddSource}
+                                style={{
+                                    ...S.btn,
+                                    background: "rgba(249,115,22,0.15)",
+                                    color: "#f97316",
+                                    border: "1px solid rgba(249,115,22,0.3)",
+                                    padding: "12px 18px",
+                                    fontWeight: 800,
+                                    whiteSpace: "nowrap",
+                                }}
+                            >
+                                + Add
+                            </button>
+                        </div>
                     </div>
                 </div>
 

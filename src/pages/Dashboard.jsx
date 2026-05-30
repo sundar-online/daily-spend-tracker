@@ -47,7 +47,7 @@ const CustomBar = (props) => {
 
 const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload?.length) return (
-        <div style={{ background: "#1a1a20", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "10px 14px", fontFamily: "inherit" }}>
+        <div style={{ pointerEvents: "none", background: "#1a1a20", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "10px 14px", fontFamily: "inherit" }}>
             {label && <div style={{ color: "rgba(240,236,228,0.4)", fontSize: 11, marginBottom: 4 }}>{label}</div>}
             <div style={{ color: "#fbbf24", fontWeight: 700, fontFamily: "'JetBrains Mono',monospace" }}>₹{payload[0].value.toLocaleString()}</div>
         </div>
@@ -60,6 +60,7 @@ export default function Dashboard({
     onAddExpense, onDeleteExpense, onLogout,
     onEditBudget, onSetupMonthBudget, onSaveCategories, onSaveNotes,
     onSaveSavingsGoal, onContributeToGoal, onDeleteSavingsGoal,
+    showToast, askConfirm,
 }) {
     const [showModal, setShowModal] = useState(false);
     const [showCatManager, setShowCatManager] = useState(false);
@@ -72,6 +73,17 @@ export default function Dashboard({
     const [categoryBreakdownActive, setCategoryBreakdownActive] = useState(false);
     const [momActive, setMomActive] = useState(false);
     const [showProfileMenu, setShowProfileMenu] = useState(false);
+    const [selectedDate, setSelectedDate] = useState(null);
+    const [selectedDayLabel, setSelectedDayLabel] = useState(null);
+    const [selectedYearMonthKey, setSelectedYearMonthKey] = useState(null);
+    const [selectedYearMonthLabel, setSelectedYearMonthLabel] = useState(null);
+    const [lastSelectedMonthKey, setLastSelectedMonthKey] = useState(null);
+
+    useEffect(() => {
+        if (selectedYearMonthKey) {
+            setLastSelectedMonthKey(selectedYearMonthKey);
+        }
+    }, [selectedYearMonthKey]);
 
     useEffect(() => {
         const handleGlobalClick = () => {
@@ -96,12 +108,16 @@ export default function Dashboard({
 
     const goToPrev = () => {
         setTab("overview"); setFilterCat("All"); setFilterDate("");
+        setSelectedDate(null); setSelectedDayLabel(null);
+        setSelectedYearMonthKey(null); setSelectedYearMonthLabel(null);
         if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
         else { setViewMonth(m => m - 1); }
     };
     const goToNext = () => {
         if (isCurrentMonth) return;
         setTab("overview"); setFilterCat("All"); setFilterDate("");
+        setSelectedDate(null); setSelectedDayLabel(null);
+        setSelectedYearMonthKey(null); setSelectedYearMonthLabel(null);
         if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
         else { setViewMonth(m => m + 1); }
     };
@@ -131,6 +147,16 @@ export default function Dashboard({
         return stats;
     }, [expenses, cats]);
 
+    const sortedCategories = useMemo(() => {
+        return [...catKeys].sort((a, b) => {
+            const spentA = catStats[a]?.total || 0;
+            const spentB = catStats[b]?.total || 0;
+            if (spentA > 0 && spentB === 0) return -1;
+            if (spentB > 0 && spentA === 0) return 1;
+            return spentB - spentA;
+        });
+    }, [catKeys, catStats]);
+
     const dailyStats = useMemo(() => {
         const dailyTotals = {};
         expenses.forEach(e => {
@@ -154,6 +180,7 @@ export default function Dashboard({
             allDays.push({
                 day: `${dayName} ${dd}`,
                 amount: dailyTotals[dateKey] ?? 0,
+                date: dateKey,
             });
         }
         return allDays;
@@ -209,6 +236,181 @@ export default function Dashboard({
 
     const allMonthKeys = Object.keys(allUserData.months || {}).sort();
 
+    const yearlyOverviewData = useMemo(() => {
+        const data = [];
+        const localCatKeys = Object.keys(cats);
+        for (let m = 0; m < 12; m++) {
+            const key = monthKey(m, viewYear);
+            const monthData = allUserData.months?.[key] || {};
+            const monthExpenses = monthData.expenses || [];
+
+            const row = {
+                month: MONTHS[m].slice(0, 3), // "Jan", "Feb", etc.
+                monthFull: MONTHS[m],
+                key,
+                total: 0,
+            };
+
+            localCatKeys.forEach(cat => {
+                row[cat] = 0;
+            });
+
+            monthExpenses.forEach(exp => {
+                if (row[exp.category] !== undefined) {
+                    row[exp.category] += exp.amount;
+                } else {
+                    row[exp.category] = exp.amount;
+                }
+                row.total += exp.amount;
+            });
+
+            data.push(row);
+        }
+        return data;
+    }, [viewYear, allUserData.months, cats]);
+
+    const monthlyBreakdownStats = useMemo(() => {
+        if (!lastSelectedMonthKey) return null;
+        const targetMonthData = allUserData.months?.[lastSelectedMonthKey] || {};
+        const targetExpenses = targetMonthData.expenses || [];
+        const targetTotal = targetExpenses.reduce((s, e) => s + e.amount, 0);
+        const targetCount = targetExpenses.length;
+
+        const [yStr, mStr] = lastSelectedMonthKey.split("-");
+        const year = parseInt(yStr, 10);
+        const mIdx = parseInt(mStr, 10) - 1;
+        const daysInMonth = new Date(year, mIdx + 1, 0).getDate();
+        const averageDailySpend = targetTotal / daysInMonth;
+
+        const categorySpends = {};
+        Object.keys(cats).forEach(cat => {
+            categorySpends[cat] = 0;
+        });
+        targetExpenses.forEach(exp => {
+            const cat = exp.category;
+            categorySpends[cat] = (categorySpends[cat] || 0) + exp.amount;
+        });
+
+        const activeCategorySpends = Object.entries(categorySpends).filter(([_, amt]) => amt > 0);
+
+        let highestCategoryText = "None";
+        let lowestCategoryText = "None";
+
+        if (activeCategorySpends.length > 0) {
+            const maxSpend = Math.max(...activeCategorySpends.map(([_, amt]) => amt));
+            const highestCats = activeCategorySpends.filter(([_, amt]) => amt === maxSpend).map(([cat]) => {
+                const icon = cats[cat]?.icon || "📁";
+                return `${icon} ${cat}`;
+            });
+            highestCategoryText = `${highestCats.join(" & ")} (₹${maxSpend.toLocaleString()})`;
+
+            const minSpend = Math.min(...activeCategorySpends.map(([_, amt]) => amt));
+            const lowestCats = activeCategorySpends.filter(([_, amt]) => amt === minSpend).map(([cat]) => {
+                const icon = cats[cat]?.icon || "📁";
+                return `${icon} ${cat}`;
+            });
+            lowestCategoryText = `${lowestCats.join(" & ")} (₹${minSpend.toLocaleString()})`;
+        }
+
+        const categoryBreakdownList = activeCategorySpends.sort((a, b) => b[1] - a[1]);
+
+        return {
+            total: targetTotal,
+            count: targetCount,
+            averageDailySpend,
+            highestCategoryText,
+            lowestCategoryText,
+            categoryBreakdownList,
+        };
+    }, [lastSelectedMonthKey, allUserData.months, cats]);
+
+    const CustomYearlyTooltip = ({ active, payload }) => {
+        if (active && payload?.length) {
+            const data = payload[0].payload;
+            const breakdown = Object.entries(data)
+                .filter(([key, val]) => catKeys.includes(key) && typeof val === "number" && val > 0)
+                .sort((a, b) => b[1] - a[1]);
+
+            return (
+                <div style={{ pointerEvents: "none", background: "#1a1a20", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, padding: "10px 14px", fontFamily: "inherit" }}>
+                    <div style={{ color: "rgba(240,236,228,0.5)", fontSize: 11, marginBottom: 6 }}>
+                        {data.monthFull} {viewYear}
+                    </div>
+                    {breakdown.length > 0 ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+                            {breakdown.map(([cat, val]) => {
+                                const icon = cats[cat]?.icon || "📁";
+                                const color = cats[cat]?.color || "#f97316";
+                                return (
+                                    <div key={cat} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, fontSize: 12 }}>
+                                        <span style={{ color: "rgba(240,236,228,0.7)", display: "flex", alignItems: "center", gap: 4 }}>
+                                            <span>{icon}</span> {cat}
+                                        </span>
+                                        <span style={{ color, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace" }}>
+                                            ₹{val.toLocaleString()}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div style={{ color: "rgba(240,236,228,0.3)", fontSize: 12, marginBottom: 8 }}>
+                            No expenses
+                        </div>
+                    )}
+                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 6, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, fontSize: 12 }}>
+                        <span style={{ color: "rgba(240,236,228,0.5)", fontWeight: 600 }}>Total Spent</span>
+                        <span style={{ color: "#fbbf24", fontWeight: 800, fontFamily: "'JetBrains Mono',monospace" }}>
+                            ₹{data.total.toLocaleString()}
+                        </span>
+                    </div>
+                </div>
+            );
+        }
+        return null;
+    };
+
+    const CustomMomTooltip = ({ active, payload, label }) => {
+        if (active && payload && payload.length) {
+            const budgetVal = payload.find(p => p.dataKey === "Budget")?.value ?? 0;
+            const spentVal = payload.find(p => p.dataKey === "Spent")?.value ?? 0;
+
+            return (
+                <div style={{
+                    pointerEvents: "none",
+                    background: "#1a1a20",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    borderRadius: 10,
+                    padding: "8px 12px",
+                    fontFamily: "inherit",
+                    fontSize: 12,
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 4,
+                    minWidth: 120,
+                }}>
+                    <div style={{ color: "rgba(240,236,228,0.5)", fontWeight: 600, fontSize: 11, borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: 4, marginBottom: 2 }}>
+                        {label}
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                        <span style={{ color: "rgba(240,236,228,0.7)" }}>Budget:</span>
+                        <span style={{ color: "rgba(240,236,228,0.9)", fontWeight: 700, fontFamily: "'JetBrains Mono',monospace" }}>
+                            ₹{budgetVal.toLocaleString()}
+                        </span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                        <span style={{ color: "rgba(240,236,228,0.7)" }}>Spent:</span>
+                        <span style={{ color: "#f97316", fontWeight: 800, fontFamily: "'JetBrains Mono',monospace" }}>
+                            ₹{spentVal.toLocaleString()}
+                        </span>
+                    </div>
+                </div>
+            );
+        }
+        return null;
+    };
+
     return (
         <div style={{ ...S.app }}>
             <FontLink />
@@ -216,6 +418,13 @@ export default function Dashboard({
                 .recharts-wrapper:focus, 
                 .recharts-wrapper *:focus {
                     outline: none !important;
+                    box-shadow: none !important;
+                }
+                /* Remove default white backgrounds and borders from Recharts tooltips */
+                .recharts-tooltip-wrapper,
+                .recharts-default-tooltip {
+                    background-color: transparent !important;
+                    border: none !important;
                     box-shadow: none !important;
                 }
                 /* Hide native input number spinners */
@@ -661,7 +870,7 @@ export default function Dashboard({
                                     const mData = allUserData.months?.[k];
                                     const mSpent = (mData?.expenses || []).reduce((s, e) => s + e.amount, 0);
                                     return (
-                                        <button key={k} onClick={() => { setViewMonth(m); setViewYear(y); setTab("overview"); setFilterCat("All"); }} style={{ padding: "10px 16px", borderRadius: 12, border: `1px solid ${isActive ? "rgba(249,115,22,0.6)" : "rgba(255,255,255,0.07)"}`, background: isActive ? "rgba(249,115,22,0.15)" : "rgba(255,255,255,0.03)", cursor: "pointer", fontFamily: "inherit", transition: "all .15s", minWidth: 100, textAlign: "center" }}>
+                                        <button key={k} onClick={() => { setViewMonth(m); setViewYear(y); setTab("overview"); setFilterCat("All"); setSelectedDate(null); setSelectedDayLabel(null); setSelectedYearMonthKey(null); setSelectedYearMonthLabel(null); }} style={{ padding: "10px 16px", borderRadius: 12, border: `1px solid ${isActive ? "rgba(249,115,22,0.6)" : "rgba(255,255,255,0.07)"}`, background: isActive ? "rgba(249,115,22,0.15)" : "rgba(255,255,255,0.03)", cursor: "pointer", fontFamily: "inherit", transition: "all .15s", minWidth: 100, textAlign: "center" }}>
                                             <div style={{ fontSize: 11, fontWeight: 700, color: isActive ? "#f97316" : isNow ? "rgba(240,236,228,0.7)" : "rgba(240,236,228,0.4)", marginBottom: 2 }}>{MONTHS[m].slice(0, 3)} {ky}</div>
                                             <div style={{ fontSize: 12, fontWeight: 800, color: isActive ? "#fbbf24" : "rgba(240,236,228,0.5)", fontFamily: "'JetBrains Mono',monospace" }}>₹{mSpent.toLocaleString()}</div>
                                             {isNow && !isActive && <div style={{ fontSize: 9, fontWeight: 800, color: "#f97316", marginTop: 2, letterSpacing: .5 }}>CURRENT</div>}
@@ -686,7 +895,7 @@ export default function Dashboard({
                             {/* OVERVIEW TAB */}
                             {tab === "overview" && (
                                 <div className="category-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 16 }}>
-                                    {catKeys.map((c) => {
+                                    {sortedCategories.map((c) => {
                                         const spent = catStats[c]?.total || 0;
                                         const topSubs = Object.entries(catStats[c]?.subs || {}).sort((a, b) => b[1] - a[1]).slice(0, 3);
                                         const color = cats[c]?.color || "#f97316";
@@ -738,10 +947,25 @@ export default function Dashboard({
                                             : <ResponsiveContainer width="100%" height={180}>
                                                 <AreaChart
                                                     data={dailyStats}
-                                                    margin={{ top: 0, right: 0, left: -20, bottom: 0 }}
+                                                    margin={{ top: 5, right: 10, left: -20, bottom: 0 }}
                                                     onMouseEnter={() => setDailySpendingActive(true)}
                                                     onMouseLeave={() => setDailySpendingActive(false)}
-                                                    onClick={(e) => { e.stopPropagation(); setDailySpendingActive(true); }}
+                                                    onClick={(state) => {
+                                                        if (state) {
+                                                            let clickedData = null;
+                                                            if (state.activePayload && state.activePayload.length > 0) {
+                                                                clickedData = state.activePayload[0].payload;
+                                                            } else if (state.activeLabel) {
+                                                                clickedData = dailyStats.find(d => d.day === state.activeLabel);
+                                                            }
+
+                                                            if (clickedData) {
+                                                                setSelectedDate(clickedData.date);
+                                                                setSelectedDayLabel(clickedData.day);
+                                                            }
+                                                        }
+                                                    }}
+                                                    style={{ cursor: "pointer" }}
                                                 >
                                                     <defs>
                                                         <linearGradient id="ag2" x1="0" y1="0" x2="0" y2="1">
@@ -752,17 +976,401 @@ export default function Dashboard({
                                                     <XAxis dataKey="day" tick={{ fill: "rgba(240,236,228,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} />
                                                     <YAxis tick={{ fill: "rgba(240,236,228,0.2)", fontSize: 10 }} axisLine={false} tickLine={false} />
                                                     <Tooltip active={dailySpendingActive ? undefined : false} cursor={false} content={<CustomTooltip />} />
+                                                    {selectedDayLabel && (
+                                                        <ReferenceLine x={selectedDayLabel} stroke="#fbbf24" strokeWidth={1.5} strokeDasharray="3 3" />
+                                                    )}
                                                     <Area type="monotone" dataKey="amount" stroke={isPastMonth ? "#60a5fa" : "#f97316"} strokeWidth={2} fill="url(#ag2)" dot={{ fill: isPastMonth ? "#60a5fa" : "#f97316", strokeWidth: 0, r: 3 }} activeDot={dailySpendingActive ? undefined : false} />
                                                 </AreaChart>
                                             </ResponsiveContainer>
                                         }
                                     </div>
 
+                                    {selectedDate && (() => {
+                                        const dayExpenses = expenses.filter(e => e.date === selectedDate);
+                                        const dayTotal = dayExpenses.reduce((s, e) => s + e.amount, 0);
+
+                                        const getSelectedDayFormatted = (dateStr) => {
+                                            if (!dateStr) return "";
+                                            const [y, m, d] = dateStr.split("-").map(Number);
+                                            const dateObj = new Date(y, m - 1, d);
+                                            const dayNamesFull = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+                                            const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                                            const weekday = dayNamesFull[dateObj.getDay()];
+                                            const month = monthNames[dateObj.getMonth()];
+                                            return `${weekday}, ${month} ${d}`;
+                                        };
+
+                                        const formattedDay = getSelectedDayFormatted(selectedDate);
+
+                                        if (dayExpenses.length === 0) {
+                                            return (
+                                                <div style={{ ...S.card, gridColumn: "1/-1", position: "relative", background: "rgba(255, 255, 255, 0.01)" }}>
+                                                    <button 
+                                                        onClick={() => { setSelectedDate(null); setSelectedDayLabel(null); }}
+                                                        style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "rgba(240,236,228,0.4)", fontSize: 20, cursor: "pointer" }}
+                                                    >
+                                                        ×
+                                                    </button>
+                                                    <div style={{ textAlign: "center", color: "rgba(240,236,228,0.4)", fontSize: 13, padding: "20px 0" }}>
+                                                        No expenses recorded on {formattedDay}
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+
+                                        const catBreakdown = {};
+                                        dayExpenses.forEach(exp => {
+                                            if (!catBreakdown[exp.category]) {
+                                                catBreakdown[exp.category] = { total: 0, items: [] };
+                                            }
+                                            catBreakdown[exp.category].total += exp.amount;
+                                            catBreakdown[exp.category].items.push(exp);
+                                        });
+
+                                        const catBreakdownList = Object.entries(catBreakdown).sort((a, b) => b[1].total - a[1].total);
+                                        const distinctCategoriesCount = catBreakdownList.length;
+
+                                        return (
+                                            <div style={{ ...S.card, gridColumn: "1/-1", position: "relative", background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255,255,255,0.08)", transition: "all 0.3s ease" }}>
+                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+                                                    <div>
+                                                        <h4 style={{ margin: "0 0 4px", fontWeight: 800, fontSize: 15, color: "#ffffff" }}>
+                                                            📅 Spending Breakdown
+                                                        </h4>
+                                                        <div style={{ color: "rgba(240,236,228,0.4)", fontSize: 12 }}>
+                                                            {formattedDay}
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                                                        <div style={{ textAlign: "right" }}>
+                                                            <div style={{ fontSize: 18, fontWeight: 900, color: isPastMonth ? "#60a5fa" : "#f97316", fontFamily: "'JetBrains Mono',monospace" }}>
+                                                                ₹{dayTotal.toLocaleString()}
+                                                            </div>
+                                                            <div style={{ fontSize: 10, color: "rgba(240,236,228,0.3)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 }}>
+                                                                Daily Total
+                                                            </div>
+                                                        </div>
+                                                        <button 
+                                                            onClick={() => { setSelectedDate(null); setSelectedDayLabel(null); }}
+                                                            style={{
+                                                                background: "rgba(255,255,255,0.06)",
+                                                                border: "none",
+                                                                color: "rgba(240,236,228,0.6)",
+                                                                width: 28,
+                                                                height: 28,
+                                                                borderRadius: 8,
+                                                                cursor: "pointer",
+                                                                fontSize: 16,
+                                                                display: "flex",
+                                                                alignItems: "center",
+                                                                justifyContent: "center",
+                                                                transition: "all 0.2s"
+                                                            }}
+                                                            onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.12)"}
+                                                            onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
+                                                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                                                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(240,236,228,0.3)", textTransform: "uppercase", letterSpacing: 0.8 }}>
+                                                            Categories ({distinctCategoriesCount})
+                                                        </div>
+                                                        
+                                                        {distinctCategoriesCount === 1 ? (
+                                                            (() => {
+                                                                const [catName, data] = catBreakdownList[0];
+                                                                const color = cats[catName]?.color || "#f97316";
+                                                                const icon = cats[catName]?.icon || "📁";
+                                                                return (
+                                                                    <div style={{ background: `${color}0c`, border: `1px solid ${color}33`, borderRadius: 14, padding: 16, textAlign: "center" }}>
+                                                                        <div style={{ fontSize: 32, marginBottom: 8 }}>{icon}</div>
+                                                                        <div style={{ fontWeight: 800, fontSize: 16, color: "#ffffff" }}>{catName}</div>
+                                                                        <div style={{ fontSize: 20, fontWeight: 900, color, fontFamily: "'JetBrains Mono',monospace", margin: "6px 0" }}>
+                                                                            ₹{data.total.toLocaleString()}
+                                                                        </div>
+                                                                        <div style={{ fontSize: 11, color: "rgba(240,236,228,0.4)" }}>
+                                                                            100% of today's spending
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })()
+                                                        ) : (
+                                                            catBreakdownList.map(([catName, data]) => {
+                                                                const color = cats[catName]?.color || "#f97316";
+                                                                const icon = cats[catName]?.icon || "📁";
+                                                                const pct = dayTotal > 0 ? (data.total / dayTotal) * 100 : 0;
+                                                                return (
+                                                                    <div key={catName} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 12, padding: 12 }}>
+                                                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                                                                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                                                <span style={{ fontSize: 18 }}>{icon}</span>
+                                                                                <div>
+                                                                                    <span style={{ fontWeight: 700, fontSize: 13 }}>{catName}</span>
+                                                                                    <span style={{ color: "rgba(240,236,228,0.35)", fontSize: 10, marginLeft: 6 }}>
+                                                                                        {pct.toFixed(0)}%
+                                                                                    </span>
+                                                                                </div>
+                                                                            </div>
+                                                                            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 13, color }}>
+                                                                                ₹{data.total.toLocaleString()}
+                                                                            </span>
+                                                                        </div>
+                                                                        <div style={{ height: 4, background: "rgba(255,255,255,0.05)", borderRadius: 999 }}>
+                                                                            <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 999 }} />
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })
+                                                        )}
+                                                    </div>
+
+                                                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(240,236,228,0.3)", textTransform: "uppercase", letterSpacing: 0.8 }}>
+                                                            Transactions ({dayExpenses.length})
+                                                        </div>
+                                                        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 220, overflowY: "auto", paddingRight: 4 }}>
+                                                            {dayExpenses.map((exp) => {
+                                                                const color = cats[exp.category]?.color || "#f97316";
+                                                                return (
+                                                                    <div 
+                                                                        key={exp.id} 
+                                                                        style={{ 
+                                                                            display: "flex", 
+                                                                            justifyContent: "space-between", 
+                                                                            alignItems: "center", 
+                                                                            padding: "10px 12px", 
+                                                                            borderRadius: 10, 
+                                                                            background: "rgba(255, 255, 255, 0.02)", 
+                                                                            borderLeft: `4px solid ${color}`,
+                                                                            border: "1px solid rgba(255,255,255,0.04)",
+                                                                            borderLeftColor: color
+                                                                        }}
+                                                                    >
+                                                                        <div style={{ minWidth: 0, flex: 1, marginRight: 8 }}>
+                                                                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                                                                <span style={{ fontSize: 12, fontWeight: 700, color: "#ffffff" }}>
+                                                                                    {exp.subCategory}
+                                                                                </span>
+                                                                                {exp.note && (
+                                                                                    <span 
+                                                                                        style={{ fontSize: 10, color: "rgba(240,236,228,0.4)", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}
+                                                                                        title={exp.note}
+                                                                                    >
+                                                                                        — {exp.note}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                            <div style={{ fontSize: 9, color: "rgba(240,236,228,0.3)", marginTop: 2 }}>
+                                                                                {exp.category}
+                                                                            </div>
+                                                                        </div>
+                                                                        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 12, color: "#ffffff" }}>
+                                                                            ₹{exp.amount.toLocaleString()}
+                                                                        </span>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {/* Yearly Spending Overview */}
+                                    <div style={{ ...S.card, gridColumn: "1/-1", background: "rgba(18, 18, 22, 0.7)", borderColor: "rgba(255, 255, 255, 0.08)" }}>
+                                        <h4 style={{ margin: "0 0 20px", fontWeight: 800, fontSize: 15 }}>📅 Yearly Spending Overview — {viewYear}</h4>
+                                        <ResponsiveContainer width="100%" height={240}>
+                                            <BarChart
+                                                data={yearlyOverviewData}
+                                                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                                                style={{ cursor: "pointer" }}
+                                                onClick={(state) => {
+                                                    if (state) {
+                                                        let clickedData = null;
+                                                        if (state.activePayload && state.activePayload.length > 0) {
+                                                            clickedData = state.activePayload[0].payload;
+                                                        } else if (state.activeLabel) {
+                                                            clickedData = yearlyOverviewData.find(d => d.month === state.activeLabel);
+                                                        }
+
+                                                        if (clickedData) {
+                                                            setSelectedYearMonthKey(clickedData.key);
+                                                            setSelectedYearMonthLabel(clickedData.monthFull);
+                                                        }
+                                                    }
+                                                }}
+                                            >
+                                                <XAxis dataKey="month" tick={false} axisLine={false} tickLine={false} />
+                                                <YAxis tick={{ fill: "rgba(240,236,228,0.2)", fontSize: 10 }} axisLine={false} tickLine={false} />
+                                                <Tooltip content={<CustomYearlyTooltip />} wrapperStyle={{ zIndex: 1000 }} cursor={{ fill: 'rgba(255, 255, 255, 0.04)' }} />
+                                                {selectedYearMonthKey && (
+                                                    <ReferenceLine x={selectedYearMonthKey.split("-")[1] === "12" ? "Dec" : MONTHS[parseInt(selectedYearMonthKey.split("-")[1]) - 1].slice(0, 3)} stroke="#fbbf24" strokeWidth={1.5} strokeDasharray="3 3" />
+                                                )}
+                                                {catKeys.map((catName) => (
+                                                    <Bar
+                                                        key={catName}
+                                                        dataKey={catName}
+                                                        stackId="a"
+                                                        fill={cats[catName]?.color || "#f97316"}
+                                                        radius={[2, 2, 0, 0]}
+                                                    />
+                                                ))}
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+
+                                    {/* Monthly Breakdown Panel */}
+                                    <div style={{
+                                        gridColumn: "1/-1",
+                                        maxHeight: selectedYearMonthKey ? "600px" : "0px",
+                                        opacity: selectedYearMonthKey ? 1 : 0,
+                                        overflow: "hidden",
+                                        transition: "max-height 0.4s ease, opacity 0.3s ease, margin-top 0.4s ease, margin-bottom 0.4s ease",
+                                        marginTop: selectedYearMonthKey ? 16 : 0,
+                                        marginBottom: selectedYearMonthKey ? 16 : 0,
+                                    }}>
+                                        {lastSelectedMonthKey && (() => {
+                                            const stats = monthlyBreakdownStats;
+                                            if (!stats) return null;
+
+                                            const targetMonthData = allUserData.months?.[lastSelectedMonthKey] || {};
+                                            const targetExpenses = targetMonthData.expenses || [];
+                                            const isEmpty = targetExpenses.length === 0;
+
+                                            const [yStr, mStr] = lastSelectedMonthKey.split("-");
+                                            const year = parseInt(yStr, 10);
+                                            const mIdx = parseInt(mStr, 10) - 1;
+                                            const selectedMonthName = `${MONTHS[mIdx]} ${year}`;
+
+                                            return (
+                                                <div style={{ ...S.card, background: "rgba(18, 18, 22, 0.5)", border: "1px solid rgba(255,255,255,0.08)", position: "relative" }}>
+                                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+                                                        <div>
+                                                            <h4 style={{ margin: "0 0 4px", fontWeight: 800, fontSize: 15, color: "#ffffff" }}>
+                                                                📅 Monthly Spending Breakdown
+                                                            </h4>
+                                                            <div style={{ color: "rgba(240,236,228,0.4)", fontSize: 12 }}>
+                                                                {selectedMonthName}
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                                                            {!isEmpty && (
+                                                                <div style={{ textAlign: "right" }}>
+                                                                    <div style={{ fontSize: 18, fontWeight: 900, color: "#f97316", fontFamily: "'JetBrains Mono',monospace" }}>
+                                                                        ₹{stats.total.toLocaleString()}
+                                                                    </div>
+                                                                    <div style={{ fontSize: 10, color: "rgba(240,236,228,0.3)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 }}>
+                                                                        Monthly Total
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                            <button 
+                                                                onClick={() => { setSelectedYearMonthKey(null); setSelectedYearMonthLabel(null); }}
+                                                                style={{
+                                                                    background: "rgba(255,255,255,0.06)",
+                                                                    border: "none",
+                                                                    color: "rgba(240,236,228,0.6)",
+                                                                    width: 28,
+                                                                    height: 28,
+                                                                    borderRadius: 8,
+                                                                    cursor: "pointer",
+                                                                    fontSize: 16,
+                                                                    display: "flex",
+                                                                    alignItems: "center",
+                                                                    justifyContent: "center",
+                                                                    transition: "all 0.2s"
+                                                                }}
+                                                                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.12)"}
+                                                                onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+                                                            >
+                                                                ×
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    {isEmpty ? (
+                                                        <div style={{ textAlign: "center", color: "rgba(240,236,228,0.4)", fontSize: 13, padding: "20px 0" }}>
+                                                            No expenses recorded for this month
+                                                        </div>
+                                                    ) : (
+                                                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
+                                                            {/* Statistics Column */}
+                                                            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                                                                <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(240,236,228,0.3)", textTransform: "uppercase", letterSpacing: 0.8 }}>
+                                                                    Monthly Statistics
+                                                                </div>
+                                                                <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                                                                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                                                        <span style={{ color: "rgba(240,236,228,0.5)", fontSize: 13 }}>Transactions Count</span>
+                                                                        <span style={{ fontWeight: 700, fontSize: 13, color: "#ffffff" }}>{stats.count}</span>
+                                                                    </div>
+                                                                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                                                        <span style={{ color: "rgba(240,236,228,0.5)", fontSize: 13 }}>Daily Average</span>
+                                                                        <span style={{ fontWeight: 700, fontSize: 13, color: "#ffffff", fontFamily: "'JetBrains Mono',monospace" }}>₹{Math.round(stats.averageDailySpend).toLocaleString()}</span>
+                                                                    </div>
+                                                                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                                                                        <span style={{ color: "rgba(240,236,228,0.3)", fontSize: 10, textTransform: "uppercase", fontWeight: 700 }}>Highest Spending Category</span>
+                                                                        <span style={{ fontWeight: 700, fontSize: 13, color: "#fbbf24" }}>{stats.highestCategoryText}</span>
+                                                                    </div>
+                                                                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                                                                        <span style={{ color: "rgba(240,236,228,0.3)", fontSize: 10, textTransform: "uppercase", fontWeight: 700 }}>Lowest Spending Category</span>
+                                                                        <span style={{ fontWeight: 700, fontSize: 13, color: "#10b981" }}>{stats.lowestCategoryText}</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Category Contribution Column */}
+                                                            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                                                                <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(240,236,228,0.3)", textTransform: "uppercase", letterSpacing: 0.8 }}>
+                                                                    Category Contribution
+                                                                </div>
+                                                                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 220, overflowY: "auto", paddingRight: 4 }}>
+                                                                    {stats.categoryBreakdownList.map(([catName, amount]) => {
+                                                                        const color = cats[catName]?.color || "#f97316";
+                                                                        const icon = cats[catName]?.icon || "📁";
+                                                                        const pct = stats.total > 0 ? (amount / stats.total) * 100 : 0;
+                                                                        return (
+                                                                            <div key={catName} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 12, padding: 12 }}>
+                                                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                                                                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                                                        <span style={{ fontSize: 18 }}>{icon}</span>
+                                                                                        <div>
+                                                                                            <span style={{ fontWeight: 700, fontSize: 13 }}>{catName}</span>
+                                                                                            <span style={{ color: "rgba(240,236,228,0.35)", fontSize: 10, marginLeft: 6 }}>
+                                                                                                {pct.toFixed(1)}%
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 13, color }}>
+                                                                                        ₹{amount.toLocaleString()}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <div style={{ height: 4, background: "rgba(255,255,255,0.05)", borderRadius: 999 }}>
+                                                                                    <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 999 }} />
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+
                                     <div style={S.card}>
                                         <h4 style={{ margin: "0 0 20px", fontWeight: 800, fontSize: 15 }}>📅 Spending by Day</h4>
                                         {(() => {
                                             const PALETTE = ['#ec4899', '#10b981', '#f97316', '#6366f1', '#f59e0b', '#3b82f6', '#a855f7'];
-                                            const dayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+                                            const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                                            const fullDayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
                                             const byDay = {};
                                             expenses.forEach(exp => {
                                                 const d = new Date(exp.date + "T00:00:00");
@@ -773,19 +1381,39 @@ export default function Dashboard({
                                                 .filter(([, val]) => val > 0)
                                                 .map(([idx, val], i) => ({
                                                     label: dayLabels[parseInt(idx)],
+                                                    fullLabel: fullDayLabels[parseInt(idx)],
                                                     value: val,
                                                     color: PALETTE[i % PALETTE.length]
                                                 }));
                                             const dayTotal = donutData.reduce((s, d) => s + d.value, 0);
                                             if (donutData.length === 0) return <p style={{ color: "rgba(240,236,228,0.2)", textAlign: "center", padding: "40px 0" }}>No data yet</p>;
+
+                                            const CustomDonutTooltip = ({ active, payload }) => {
+                                                if (active && payload && payload.length) {
+                                                    const data = payload[0].payload;
+                                                    const pct = dayTotal > 0 ? ((data.value / dayTotal) * 100).toFixed(1) : 0;
+                                                    return (
+                                                        <div style={{ pointerEvents: "none", background: "#1a1a20", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, padding: "10px 14px", fontFamily: "inherit" }}>
+                                                            <div style={{ color: "#ffffff", fontWeight: 800, fontSize: 13, marginBottom: 4 }}>{data.fullLabel}</div>
+                                                            <div style={{ color: "rgba(240,236,228,0.6)", fontSize: 12 }}>
+                                                                Spent: <span style={{ color: "#fbbf24", fontWeight: 700, fontFamily: "'JetBrains Mono',monospace" }}>₹{data.value.toLocaleString()}</span>
+                                                            </div>
+                                                            <div style={{ color: "rgba(240,236,228,0.45)", fontSize: 11, marginTop: 2 }}>
+                                                                {pct}% of total
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
+                                                return null;
+                                            };
+
                                             return (
                                                 <ResponsiveContainer width="100%" height={220}>
                                                     <PieChart>
                                                         <Pie data={donutData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={donutData.length > 1 ? 3 : 0} dataKey="value" nameKey="label">
                                                             {donutData.map((e, i) => <Cell key={i} fill={e.color} />)}
                                                         </Pie>
-                                                        <Tooltip formatter={(v) => [`₹${v.toLocaleString()} (${dayTotal > 0 ? ((v / dayTotal) * 100).toFixed(1) : 0}%)`, "Spent"]} contentStyle={{ background: "#12121a", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, fontFamily: "inherit" }} itemStyle={{ color: "#fbbf24", fontWeight: 700 }} labelStyle={{ color: "#f0ece4" }} />
-                                                        <Legend wrapperStyle={{ color: "rgba(240,236,228,0.5)", fontSize: 12 }} />
+                                                        <Tooltip content={<CustomDonutTooltip />} />
                                                     </PieChart>
                                                 </ResponsiveContainer>
                                             );
@@ -837,7 +1465,7 @@ export default function Dashboard({
                                                 >
                                                     <XAxis dataKey="name" tick={{ fill: "rgba(240,236,228,0.4)", fontSize: 11 }} axisLine={false} tickLine={false} />
                                                     <YAxis tick={{ fill: "rgba(240,236,228,0.2)", fontSize: 10 }} axisLine={false} tickLine={false} />
-                                                    <Tooltip active={momActive ? undefined : false} formatter={v => `₹${v.toLocaleString()}`} contentStyle={{ background: "#12121a", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, fontFamily: "inherit" }} itemStyle={{ color: "#fbbf24", fontWeight: 700 }} labelStyle={{ color: "#f0ece4" }} />
+                                                    <Tooltip content={<CustomMomTooltip />} wrapperStyle={{ zIndex: 1000 }} cursor={{ fill: 'rgba(255, 255, 255, 0.04)' }} />
                                                     <Legend wrapperStyle={{ color: "rgba(240,236,228,0.5)", fontSize: 12 }} />
                                                     <Bar dataKey="Budget" fill="rgba(255,255,255,0.1)" radius={[4, 4, 0, 0]} />
                                                     <Bar dataKey="Spent" fill="#f97316" radius={[4, 4, 0, 0]} />
@@ -925,13 +1553,15 @@ export default function Dashboard({
 
             {/* MODALS */}
             {showModal && currentBudget && (
-                <AddExpenseModal budget={currentBudget} customCategories={allUserData?.customCategories} onAdd={onAddExpense} onClose={() => setShowModal(false)} />
+                <AddExpenseModal budget={currentBudget} customCategories={allUserData?.customCategories} onAdd={onAddExpense} onClose={() => setShowModal(false)} showToast={showToast} />
             )}
             {showCatManager && (
                 <CategoryManager
                     customCategories={allUserData?.customCategories}
                     onSave={onSaveCategories}
                     onClose={() => setShowCatManager(false)}
+                    showToast={showToast}
+                    askConfirm={askConfirm}
                 />
             )}
         </div>

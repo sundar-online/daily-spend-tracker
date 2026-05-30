@@ -30,6 +30,48 @@ export function useExpenseManager() {
     const [allUserData, setAllUserData] = useState(null);
     const [loading, setLoading] = useState(true);   // initial session check
 
+    // Custom alerts and confirmation states
+    const [toasts, setToasts] = useState([]);
+    const [confirmDialog, setConfirmDialog] = useState(null);
+
+    const showToast = useCallback((message, type = "info") => {
+        const id = Date.now() + Math.random();
+        setToasts(prev => [...prev, { id, message, type }]);
+        setTimeout(() => {
+            setToasts(prev => prev.filter(t => t.id !== id));
+        }, 4000);
+    }, []);
+
+    const removeToast = useCallback((id) => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+    }, []);
+
+    const askConfirm = useCallback((message, onConfirm, options = {}) => {
+        const isDestructive = options.isDestructive ?? (
+            message.toLowerCase().includes("delete") || 
+            message.toLowerCase().includes("remove")
+        );
+        setConfirmDialog({
+            message,
+            title: options.title || "Confirm Action",
+            confirmText: options.confirmText || "Confirm",
+            cancelText: options.cancelText || "Cancel",
+            isDestructive,
+            onConfirm: () => {
+                onConfirm();
+                setConfirmDialog(null);
+            },
+            onCancel: () => {
+                if (options.onCancel) options.onCancel();
+                setConfirmDialog(null);
+            }
+        });
+    }, []);
+
+    const closeConfirm = useCallback(() => {
+        setConfirmDialog(null);
+    }, []);
+
     // Load user data from Firestore
     const loadData = useCallback(async (userId) => {
         try {
@@ -81,9 +123,10 @@ export function useExpenseManager() {
             await upsertBudget(user.id, budget);
             await loadData(user.id);
             setScreen("dashboard");
+            showToast("Budget saved successfully!", "success");
         } catch (err) {
             console.error("Failed to save budget:", err);
-            alert("Failed to save budget: " + (err.message || JSON.stringify(err)));
+            showToast("Failed to save budget: " + (err.message || JSON.stringify(err)), "error");
         }
     };
 
@@ -109,9 +152,10 @@ export function useExpenseManager() {
 
             await insertExpense(user.id, expense, key);
             await loadData(user.id);
+            showToast("Expense added successfully!", "success");
         } catch (err) {
             console.error("Failed to add expense:", err);
-            alert("Failed to add expense. Please try again.");
+            showToast("Failed to add expense. Please try again.", "error");
         }
     };
 
@@ -119,9 +163,10 @@ export function useExpenseManager() {
         try {
             await deleteExpenseById(user.id, expenseId);
             await loadData(user.id);
+            showToast("Expense deleted successfully!", "success");
         } catch (err) {
             console.error("Failed to delete expense:", err);
-            alert("Failed to delete expense. Please try again.");
+            showToast("Failed to delete expense. Please try again.", "error");
         }
     };
 
@@ -129,19 +174,31 @@ export function useExpenseManager() {
         try {
             await upsertCategories(user.id, customCats);
             await loadData(user.id);
+            showToast("Categories updated successfully!", "success");
         } catch (err) {
             console.error("Failed to save categories:", err);
-            alert("Failed to save categories. Please try again.");
+            showToast("Failed to save categories. Please try again.", "error");
         }
     };
 
     const saveNotes = async (notes) => {
+        // Optimistically update local state immediately
+        setAllUserData(prev => {
+            if (!prev) return prev;
+            return {
+                ...prev,
+                notes,
+            };
+        });
+
+        // Sync with background database without blocking UI or fetching data
         try {
             await saveAllNotes(user.id, notes);
-            await loadData(user.id);
         } catch (err) {
             console.error("Failed to save notes:", err);
-            alert("Failed to save notes. Please try again.");
+            // Rollback local state on error
+            await loadData(user.id);
+            showToast("Failed to sync notes with the server. Please try again.", "error");
         }
     };
 
@@ -161,13 +218,15 @@ export function useExpenseManager() {
         try {
             if (rule.id) {
                 await updateRecurringExpense(user.id, rule.id, rule);
+                showToast("Recurring rule updated!", "success");
             } else {
                 await createRecurringExpense(user.id, rule);
+                showToast("Recurring rule created!", "success");
             }
             await loadData(user.id);
         } catch (err) {
             console.error("Failed to save recurring rule:", err);
-            alert("Failed to save recurring rule. Please try again.");
+            showToast("Failed to save recurring rule. Please try again.", "error");
         }
     };
 
@@ -175,9 +234,10 @@ export function useExpenseManager() {
         try {
             await deleteRecurringExpense(user.id, recurringId);
             await loadData(user.id);
+            showToast("Recurring rule deleted.", "success");
         } catch (err) {
             console.error("Failed to delete recurring rule:", err);
-            alert("Failed to delete recurring rule. Please try again.");
+            showToast("Failed to delete recurring rule. Please try again.", "error");
         }
     };
 
@@ -185,9 +245,10 @@ export function useExpenseManager() {
         try {
             await createSavingsGoal(user.id, goal);
             await loadData(user.id);
+            showToast("Savings goal created successfully!", "success");
         } catch (err) {
             console.error("Failed to create savings goal:", err);
-            alert("Failed to create savings goal. Please try again.");
+            showToast("Failed to create savings goal. Please try again.", "error");
         }
     };
 
@@ -217,9 +278,10 @@ export function useExpenseManager() {
 
             await insertExpense(user.id, expense, key);
             await loadData(user.id);
+            showToast("Savings contribution saved!", "success");
         } catch (err) {
             console.error("Failed to add savings contribution:", err);
-            alert("Failed to add contribution. Please try again.");
+            showToast("Failed to add contribution. Please try again.", "error");
         }
     };
 
@@ -227,9 +289,10 @@ export function useExpenseManager() {
         try {
             await deleteSavingsGoal(user.id, goalId);
             await loadData(user.id);
+            showToast("Savings goal deleted.", "success");
         } catch (err) {
             console.error("Failed to delete savings goal:", err);
-            alert("Failed to delete savings goal. Please try again.");
+            showToast("Failed to delete savings goal. Please try again.", "error");
         }
     };
 
@@ -243,6 +306,12 @@ export function useExpenseManager() {
         allUserData,
         currentBudget,
         loading,
+        toasts,
+        showToast,
+        removeToast,
+        confirmDialog,
+        askConfirm,
+        closeConfirm,
         login,
         logout,
         saveBudget,

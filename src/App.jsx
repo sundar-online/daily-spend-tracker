@@ -12,6 +12,7 @@ export default function App() {
     saveCategories, saveNotes,
     ensureRecurringForMonth, saveRecurringRule, removeRecurringRule,
     saveSavingsGoal, contributeToGoal, removeSavingsGoal,
+    toasts, showToast, removeToast, confirmDialog, askConfirm, closeConfirm
   } = useExpenseManager();
 
   // Show loading spinner while checking session
@@ -26,39 +27,93 @@ export default function App() {
     </div>
   );
 
-  if (screen === "auth") return <AuthScreen onLogin={login} />;
+  let activeView = null;
 
-  if (screen === "setup") return (
-    <BudgetSetup
-      username={user?.email || ""}
-      existingBudget={currentBudget}
-      targetMonth={CURRENT_MONTH}
-      targetYear={CURRENT_YEAR}
-      onSave={saveBudget}
-      onBack={currentBudget ? () => setScreen("dashboard") : null}
-    />
+  if (screen === "auth") {
+    activeView = <AuthScreen onLogin={login} />;
+  } else if (screen === "setup") {
+    activeView = (
+      <BudgetSetup
+        username={user?.email || ""}
+        allUserData={allUserData}
+        targetMonth={CURRENT_MONTH}
+        targetYear={CURRENT_YEAR}
+        onSave={saveBudget}
+        onBack={currentBudget ? () => setScreen("dashboard") : null}
+        showToast={showToast}
+        askConfirm={askConfirm}
+      />
+    );
+  } else if (screen === "dashboard" && allUserData) {
+    activeView = (
+      <Dashboard
+        username={user?.email || ""}
+        allUserData={allUserData}
+        currentBudget={currentBudget}
+        onAddExpense={addExpense}
+        onDeleteExpense={deleteExpense}
+        onLogout={logout}
+        onEditBudget={() => setScreen("setup")}
+        onSetupMonthBudget={() => setScreen("setup")}
+        onSaveCategories={saveCategories}
+        onSaveNotes={saveNotes}
+        onEnsureRecurringForMonth={ensureRecurringForMonth}
+        onSaveRecurringRule={saveRecurringRule}
+        onDeleteRecurringRule={removeRecurringRule}
+        onSaveSavingsGoal={saveSavingsGoal}
+        onContributeToGoal={contributeToGoal}
+        onDeleteSavingsGoal={removeSavingsGoal}
+        showToast={showToast}
+        askConfirm={askConfirm}
+      />
+    );
+  }
+
+  return (
+    <>
+      {activeView}
+      {/* Toast Overlay */}
+      {toasts.length > 0 && (
+        <div className="toast-container">
+          {toasts.map(t => (
+            <div key={t.id} className={`toast-card toast-${t.type}`}>
+              <div className="toast-content">
+                <span className="toast-icon">
+                  {t.type === "success" && "✅"}
+                  {t.type === "error" && "❌"}
+                  {t.type === "warning" && "⚠️"}
+                  {t.type === "info" && "ℹ️"}
+                </span>
+                <span className="toast-message">{t.message}</span>
+              </div>
+              <button className="toast-close-btn" onClick={() => removeToast(t.id)}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* Custom Confirm Modal */}
+      {confirmDialog && (
+        <div className="confirm-overlay" onClick={closeConfirm}>
+          <div className="confirm-card" onClick={e => e.stopPropagation()}>
+            <div className="confirm-title">
+              <span className="emoji-icon">{confirmDialog.isDestructive ? "⚠️" : "❓"}</span>
+              {confirmDialog.title}
+            </div>
+            <div className="confirm-body">{confirmDialog.message}</div>
+            <div className="confirm-actions">
+              <button className="confirm-btn-cancel" onClick={closeConfirm}>
+                {confirmDialog.cancelText}
+              </button>
+              <button
+                className={`confirm-btn-action ${confirmDialog.isDestructive ? "confirm-btn-destructive" : "confirm-btn-primary"}`}
+                onClick={confirmDialog.onConfirm}
+              >
+                {confirmDialog.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
-
-  if (screen === "dashboard" && allUserData) return (
-    <Dashboard
-      username={user?.email || ""}
-      allUserData={allUserData}
-      currentBudget={currentBudget}
-      onAddExpense={addExpense}
-      onDeleteExpense={deleteExpense}
-      onLogout={logout}
-      onEditBudget={() => setScreen("setup")}
-      onSetupMonthBudget={() => setScreen("setup")}
-      onSaveCategories={saveCategories}
-      onSaveNotes={saveNotes}
-      onEnsureRecurringForMonth={ensureRecurringForMonth}
-      onSaveRecurringRule={saveRecurringRule}
-      onDeleteRecurringRule={removeRecurringRule}
-      onSaveSavingsGoal={saveSavingsGoal}
-      onContributeToGoal={contributeToGoal}
-      onDeleteSavingsGoal={removeSavingsGoal}
-    />
-  );
-
-  return null;
 }
